@@ -1,0 +1,10 @@
+---
+globs: ["tests/**"]
+alwaysApply: false
+---
+
+# Use Typescript For Development
+
+## Policies
+
+1. Use typescript
