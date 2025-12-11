@@ -3,8 +3,8 @@ globs: ["tests/**"]
 alwaysApply: false
 ---
 
-# Use Jest For Unit Testing
+# Use Mock Service Worker For Testing
 
 ## Policies
 
-1. Use Jest for testing
+1. Use mock service worker for API mocking

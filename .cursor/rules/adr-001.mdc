@@ -3,8 +3,8 @@ globs: ["tests/**"]
 alwaysApply: false
 ---
 
-# Use Mock Service Worker For Testing
+# Target Ninety Percent Test Coverage
 
 ## Policies
 
-1. Use mock service worker for API mocking
+1. Aim for 90 percent test coverage
