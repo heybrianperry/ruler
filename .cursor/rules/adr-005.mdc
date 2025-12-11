@@ -3,8 +3,8 @@ globs: ["tests/**"]
 alwaysApply: false
 ---
 
-# Use Jest For Unit Testing
+# Use Typescript For Development
 
 ## Policies
 
-1. Use Jest for testing
+1. Use typescript

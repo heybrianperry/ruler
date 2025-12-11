@@ -3,8 +3,8 @@ globs: ["tests/**"]
 alwaysApply: false
 ---
 
-# Target Ninety Percent Test Coverage
+# Use Storybook For Component Isolation Testing
 
 ## Policies
 
-1. Aim for 90 percent test coverage
+1. Use storybook to test components in isolation.
