@@ -1,0 +1,3 @@
+## ADR 1: Centralized Environment Configuration Management for Agent Runtime Execution
+
+1. Adopt a centralized configuration and environment management pattern where configuration is abstracted through dedicated modules (paths/mcp.ts, vscode/settings.ts) that provide consistent access to environment variables, file paths, and runtime settings. All agent implementations and MCP propagation logic consume configuration through these centralized modules rather than directly accessing environment variables or hardcoding paths. This creates a single source of truth for environment-dependent values and enables consistent configuration propagation across the agent ecosystem.

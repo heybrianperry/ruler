@@ -1,0 +1,10 @@
+---
+globs: ["tests/unit/**"]
+alwaysApply: false
+---
+
+# Adopt Comprehensive Unit Testing with Mocking for Agent Implementations
+
+## Policies
+
+1. Implement a standardized unit testing approach with mocking capabilities for all agent implementations. Each agent receives dedicated test files that use mocking frameworks to isolate the agent logic from external dependencies. This includes testing valid agent behaviors (JunieAgent, OpenCodeAgent, JulesAgent) as well as invalid agent scenarios to ensure comprehensive coverage of both happy paths and error conditions. The testing pattern is consistently applied across all agent types, creating a uniform testing architecture.

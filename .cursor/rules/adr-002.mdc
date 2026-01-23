@@ -1,0 +1,10 @@
+---
+globs: ["tests/**"]
+alwaysApply: false
+---
+
+# Adopt Comprehensive Unit Testing Strategy for CI/CD Pipeline Integration
+
+## Policies
+
+1. Implement a comprehensive unit testing framework as a foundational component of the CI/CD pipeline. All core utilities, agents, configuration parsers, and CLI features must have corresponding unit tests organized in a parallel test directory structure (tests/unit/ and tests/integration/). Tests are written in TypeScript/JavaScript using a consistent testing framework, covering critical paths including file system operations, rule processing, configuration merging, agent behaviors, and error handling scenarios. The testing strategy includes both isolated unit tests for individual components and integration tests for end-to-end workflows.
