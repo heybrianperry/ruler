@@ -5,9 +5,51 @@
 
 # Ruler
 
-## Development Process
+## Project Structure & Module Organization
 
-### Testing
+1. Configuration files (ESLint, TypeScript) MUST be maintained at the project root to enforce consistent code quality across all modules
+2. Module boundaries SHOULD follow single responsibility principle with clear separation between agents, CLI, utilities, and tests
+3. Abstract base classes SHOULD define common interfaces and behaviors that concrete implementations extend
+4. Additional library modules MAY be introduced under src/ following the established organizational pattern
+
+## Build, Test, and Development Commands
+
+Core development commands:
+- `npm ci` - Install dependencies
+- `npm run lint` - Run linting
+- `npm test` - Run test suite
+- `npm run build` - Build the project
+- `prettier` - Format code before committing
+
+Before declaring a pull request ready for review, you must ensure that all the CI tests pass.
+
+## Coding Style & Naming Conventions
+
+### Code Formatting
+
+- Always ensure that the code is formatted correctly by running prettier before committing changes.
+- IMPORTANT: Before committing, always use Prettier to ensure that the code is formatted correctly.
+
+### Logging Guidelines
+
+1. Logging configuration MUST be centralized in a constants or configuration module to ensure consistency across the application
+2. All modules performing I/O operations, external integrations, or user-facing actions MUST implement logging at appropriate severity levels
+3. Log messages SHOULD include contextual information such as operation type, file paths (sanitized), and relevant identifiers to aid troubleshooting
+4. Logging implementations MUST NOT expose sensitive information such as credentials, tokens, or personally identifiable information in log messages
+5. Public API logging MUST NOT include sensitive data such as passwords, tokens, or personally identifiable information (PII) in plain text
+6. Logging implementations SHOULD use structured logging formats (JSON) to facilitate automated parsing and analysis
+7. All public API contract implementations MUST include structured logging at entry and exit points
+8. Log entries for public API contracts MUST include correlation identifiers to enable request tracing across system boundaries
+9. Error conditions in public API contracts MUST be logged with ERROR level severity and include stack traces where applicable
+10. Public API contracts SHOULD log performance metrics including execution time and resource utilization
+11. Public API contracts MAY implement debug-level logging for detailed internal state inspection when explicitly enabled
+12. Modules MAY implement debug-level logging for detailed operational traces when verbose mode is enabled
+13. File system operations SHOULD log both successful operations and error conditions with sufficient context for debugging
+14. CLI handlers SHOULD log command execution start, completion, and any errors encountered during processing
+
+## Testing Guidelines
+
+### Test-Driven Development
 
 - Always follow TDD where possible - first adding or adjusting tests, verifying that they fail, then making the minimal changes to pass the tests.
 - Everything in this repository should be covered by tests. That always includes:
@@ -15,18 +57,97 @@
   - Integration tests
   - End-to-end tests
 
-### Code Formatting
+### Testing Framework and Structure
 
-- Always ensure that the code is formatted correctly by running prettier before committing changes.
+1. All test suites MUST use Jest as the testing framework
+2. All test files MUST use TypeScript with the .test.ts file extension
+3. Unit tests MUST be written in TypeScript with .ts extension
+4. Test code MUST leverage TypeScript's type system to ensure type safety in test assertions and mocks
+5. All test files MUST be placed within the tests/ directory at the project root
+6. Test files MUST be organized into appropriate directories: tests/unit/ for unit tests, tests/integration/ for integration tests, and tests/e2e/ for end-to-end tests
+7. Unit tests MUST be organized under tests/unit/ with subdirectories matching the source code structure (e.g., tests/unit/agents/, tests/unit/mcp/)
+8. Integration tests MUST be placed in tests/integration/ and end-to-end tests MUST be placed in tests/e2e/
 
-### Branches and Pull Requests
+### Test Naming Conventions
+
+1. Test files MUST use the naming pattern {feature-name}.test.{ext} where feature-name uses kebab-case and clearly describes the component or feature under test
+2. Test file names SHOULD mirror the source file being tested (e.g., ClaudeAgent.test.ts for ClaudeAgent.ts)
+3. Agent unit test files MUST follow the naming convention {AgentName}.test.ts
+4. Test files SHOULD be named to reflect the specific behavior or scenario being tested rather than just the class name (e.g., mcp-backup-prevention.test.ts instead of mcp.test.ts)
+5. Test file names SHOULD include the test type as a suffix when it provides clarity (e.g., .integration.test.ts, .e2e.test.ts)
+6. Test files MAY include descriptive suffixes beyond .test.ts to indicate specific test scenarios (e.g., -anchored.test.ts, -no-backup.test.ts)
+7. Test files MAY include additional context in the name to distinguish between different test aspects of the same component (e.g., claude-http-type.test.ts, gemini-no-backup.test.ts)
+
+### Test Organization and Coverage
+
+1. All agent implementations MUST have corresponding unit test files located in tests/unit/agents/ directory
+2. Each agent implementation MUST have a corresponding unit test file following the pattern tests/unit/agents/{AgentName}.test.ts
+3. Unit tests SHOULD focus on testing individual components in isolation with mocked dependencies
+4. Integration tests SHOULD verify interactions between multiple components or external systems
+5. Agent unit tests SHOULD cover core agent functionality including initialization, message handling, and state management
+6. Agent test suites SHOULD achieve at least 80% code coverage for the agent class under test
+7. Test files SHOULD maintain consistent structure and organization patterns across all agent implementations
+8. Shared testing utilities and mocks SHOULD be extracted to common test helpers to avoid duplication
+
+### Test Isolation and Mocking
+
+1. All unit tests in the CI/CD pipeline MUST mock external dependencies including network calls, file system operations, and third-party services to ensure test isolation and deterministic behavior
+2. All agent unit tests MUST use mocking frameworks to isolate the agent under test from external dependencies
+3. Agent unit tests MUST NOT make real network calls, file system operations, or database queries
+4. Tests MUST NOT rely on real external services or network connectivity that could cause non-deterministic failures in the CI/CD pipeline
+5. Integration tests MUST use mocking for components outside the scope of the integration being tested to maintain test reliability and execution speed
+6. Test files SHOULD use a consistent mocking framework or library across the test suite to reduce cognitive overhead and improve maintainability
+7. Mocks SHOULD be reset or cleared between test cases to prevent test pollution and ensure each test runs in a clean state
+8. Mock implementations SHOULD verify that expected interactions occurred (e.g., function calls, parameter values) to validate component behavior
+9. Mock implementations SHOULD verify interaction patterns (method calls, argument passing) rather than just stubbing return values
+10. Test setup SHOULD use factory functions or test fixtures to create consistent mock configurations across test cases
+11. Tests MAY use spy patterns to observe real implementations while still maintaining the ability to verify interactions
+12. Tests MAY use spy objects to verify internal state changes when behavior verification is insufficient
+13. Agent tests MAY include integration-style tests within the unit test suite if they remain fast and isolated
+
+### Parallel Test Execution
+
+1. Unit tests in CI/CD pipelines MUST be designed to support parallel execution without shared mutable state
+2. Test frameworks MUST be configured to execute test suites concurrently when running in CI/CD environments
+3. Test files MUST be isolated such that execution order does not affect test outcomes
+4. Tests MUST NOT depend on execution order or timing of other tests in the suite
+5. CI/CD pipeline configurations SHOULD specify the degree of parallelism based on available compute resources
+6. Test suites SHOULD be balanced across parallel workers to optimize total execution time
+7. Integration tests MAY use sequential execution when external resource constraints require it
+
+## Commit & Pull Request Guidelines
 
 - Unless specifically instructed otherwise, all changes should be made in a feature branch and submitted as a pull request for review.
 - Pull requests should be descriptive and clearly explain the changes being made, including the rationale behind the change, the functional changes, the specific files and modules affected.
-- Before declaring a pull request ready for review, you must ensure that all the CI tests pass. These include:
-  - `npm ci`
-  - `npm run lint`
-  - `npm test`
-  - `npm run build`
-- IMPORTANT: Before committing, always use Prettier to ensure that the code is formatted correctly.
 - IMPORTANT: When committing yourself with `git commit`, always pass `--author="AI <ruler+ai@okigu.com>"` so that your commits can be easily identified.
+
+## Security & Configuration Tips
+
+### Environment Variable and Configuration Management
+
+1. All environment variables consumed by the application MUST be validated before use, checking for presence, type correctness, and format constraints
+2. All environment variable access MUST be mediated through a centralized configuration module or service
+3. All agent implementations MUST initialize configuration through a centralized environment management module before executing any business logic
+4. Environment variable access MUST be encapsulated through typed configuration interfaces rather than direct process.env access
+5. Components MUST NOT directly access process.env or other platform-specific environment APIs outside the configuration layer
+6. Configuration modules MUST provide type-safe accessors with explicit return types for all configuration values
+7. Configuration modules MUST document all available configuration keys, their types, default values, and purposes
+8. Configuration modules MUST validate required environment variables at initialization time and fail fast with descriptive error messages
+9. Required environment variables MUST be validated at application startup or module initialization, failing fast before business logic execution
+10. Configuration validation failures MUST result in explicit error messages that identify the invalid variable and expected format without exposing sensitive values
+11. Configuration accessors SHOULD include validation logic to ensure values meet expected formats and constraints
+12. Configuration modules SHOULD provide default values for optional settings to reduce configuration burden
+13. Configuration modules SHOULD provide default values for optional environment variables with clear documentation of fallback behavior
+14. Configuration values SHOULD be immutable after initialization to prevent race conditions in concurrent execution contexts
+15. Agent configuration SHOULD support both environment variable and settings file sources with clear precedence rules
+16. Validation logic SHOULD be centralized in dedicated configuration or settings modules rather than scattered across business logic
+17. Configuration modules MAY support multiple configuration sources (environment variables, config files, command-line arguments) with defined precedence
+18. Configuration modules MAY provide default values for optional settings with clear documentation of fallback behavior
+19. Configuration modules MAY implement schema validation using libraries like Zod, Joi, or JSON Schema for complex configuration structures
+20. Agent implementations MUST NOT cache environment variables in global mutable state without proper synchronization mechanisms
+
+### Security Best Practices
+
+1. Environment variable values MUST NOT be used directly in security-sensitive operations (authentication, authorization, command execution) without validation and sanitization
+2. Logging implementations MUST NOT expose sensitive information such as credentials, tokens, or personally identifiable information in log messages
+3. Public API logging MUST NOT include sensitive data such as passwords, tokens, or personally identifiable information (PII) in plain text

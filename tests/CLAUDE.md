@@ -1,0 +1,3 @@
+## ADR 1: Adopt TypeScript with Jest for Comprehensive Test Coverage Across Unit, Integration, and E2E Tests
+
+1. Standardize on Jest as the primary testing framework with TypeScript support for all test types (unit, integration, and end-to-end tests). All test files follow the `.test.ts` naming convention and are organized in a structured directory hierarchy under `/tests/` with subdirectories for `unit/`, `integration/`, and `e2e/` test categories. This decision establishes Jest as the single testing framework across the entire codebase, eliminating fragmentation and providing consistent testing patterns, mocking capabilities, and assertion APIs.
