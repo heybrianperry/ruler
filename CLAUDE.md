@@ -8,7 +8,7 @@ Full ADR documents: @docs/adr/
 </adr_governance>
 
 <activation>
-These directives are ALWAYS ACTIVE. All AI coding agents MUST apply all rules in this
+These directives are ALWAYS ACTIVE. Claude Code MUST apply all rules in this
 document to every code generation, modification, and review action within this
 project. No exceptions unless explicitly noted per-rule.
 </activation>
@@ -21,7 +21,7 @@ project. No exceptions unless explicitly noted per-rule.
 All rules in this document follow the **Verify → Fix → Repeat** loop.
 </verification_protocol>
 
-After generating or modifying code for any rule, the agent MUST:
+After generating or modifying code for any rule, Claude Code MUST:
 
 1. **RUN** the targeted verification command(s) in the rule's **Verify** block.
 2. **CAPTURE** the full command output (stdout + stderr).
@@ -31,19 +31,19 @@ After generating or modifying code for any rule, the agent MUST:
 6. **MAX ITERATIONS:** 5 attempts per rule. If still failing after 5 attempts, STOP and report the failure with all captured outputs.
 
 <enforcement>
-Compliance is not optional. Agents must not skip verification steps, assume
+Compliance is not optional. Claude Code must not skip verification steps, assume
 correctness, or defer verification to a later task. Evidence of a passing
 verification run must accompany every code change that touches a governed area.
 </enforcement>
 
 ---
 
-## Standardize Logging Practices for Observability and Operational Monitoring: Log Output Configurable
+## ADR 1: Standardize Logging Practices for Observability and Operational Monitoring: Log Output Configurable
 
 1. Log output SHOULD be configurable via environment variables or configuration files to support different deployment environments
 
 ---
 
-## Standardize Logging Practices for Observability and Operational Monitoring: Logging Not Include
+## ADR 2: Standardize Logging Practices for Observability and Operational Monitoring: Logging Not Include
 
 1. Logging MUST NOT include sensitive information such as passwords, API keys, or personally identifiable information (PII)
