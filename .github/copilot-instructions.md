@@ -4,6 +4,12 @@ This file contains architecture decision records (ADRs) that guide development i
 
 ---
 
+## Use Markdown Format For All Rules
+
+User markdown format for all rules
+
+---
+
 ## Standardize Input Validation in CI/CD Test Suites: Test Suites Include
 
 All CI/CD test suites MUST include explicit input validation test cases that verify proper handling of invalid, malformed, and edge-case inputs
