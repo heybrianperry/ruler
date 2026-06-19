@@ -2,6 +2,7 @@ import * as path from 'path';
 import { promises as fs } from 'fs';
 import { AgentsMdAgent } from './AgentsMdAgent';
 import { IAgentConfig } from './IAgent';
+import { writeGeneratedFile } from '../core/FileSystemUtils';
 
 /**
  * Zed editor agent adapter.
@@ -22,16 +23,26 @@ export class ZedAgent extends AgentsMdAgent {
     projectRoot: string,
     rulerMcpJson: Record<string, unknown> | null,
     agentConfig?: IAgentConfig,
+    backup = true,
   ): Promise<void> {
     // First, perform idempotent AGENTS.md write via base class
-    await super.applyRulerConfig(concatenatedRules, projectRoot, null, {
-      outputPath: agentConfig?.outputPath,
-    });
+    await super.applyRulerConfig(
+      concatenatedRules,
+      projectRoot,
+      null,
+      {
+        outputPath: agentConfig?.outputPath,
+      },
+      backup,
+    );
 
     // Handle MCP server configuration if enabled and provided
     const mcpEnabled = agentConfig?.mcp?.enabled ?? true;
     if (mcpEnabled && rulerMcpJson) {
-      const zedSettingsPath = path.join(projectRoot, '.zed', 'settings.json');
+      const zedSettingsPath = path.resolve(
+        projectRoot,
+        agentConfig?.outputPathConfig ?? path.join('.zed', 'settings.json'),
+      );
 
       // Read existing settings
       let existingSettings: Record<string, unknown> = {};
@@ -100,8 +111,7 @@ export class ZedAgent extends AgentsMdAgent {
       }
 
       // Write updated settings
-      await fs.mkdir(path.dirname(zedSettingsPath), { recursive: true });
-      await fs.writeFile(
+      await writeGeneratedFile(
         zedSettingsPath,
         JSON.stringify(mergedSettings, null, 2),
       );
@@ -117,6 +127,10 @@ export class ZedAgent extends AgentsMdAgent {
   }
 
   supportsMcpRemote(): boolean {
+    return true;
+  }
+
+  supportsNativeSkills(): boolean {
     return true;
   }
 

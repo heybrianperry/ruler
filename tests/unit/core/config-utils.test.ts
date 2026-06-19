@@ -5,7 +5,7 @@ import { IAgent, IAgentConfig } from '../../../src/agents/IAgent';
 class MockAgent implements IAgent {
   constructor(
     private identifier: string,
-    private name: string
+    private name: string,
   ) {}
 
   getIdentifier(): string {
@@ -58,7 +58,7 @@ describe('config-utils', () => {
     it('should map substring matches with display names (case-insensitive)', () => {
       const rawConfigs = {
         github: { enabled: true }, // matches "GitHub Copilot"
-        code: { enabled: false },  // matches "Claude Code" and "AugmentCode" 
+        code: { enabled: false }, // matches "Claude Code" and "AugmentCode"
         augment: { outputPath: '/path' }, // matches "AugmentCode"
       };
 
@@ -75,7 +75,7 @@ describe('config-utils', () => {
       const rawConfigs = {
         copilot: { enabled: true }, // exact match
         github: { enabled: false }, // substring match with same agent
-        claude: { outputPath: '/claude' }, // exact match  
+        claude: { outputPath: '/claude' }, // exact match
         code: { outputPath: '/code' }, // substring match (different agent)
       };
 
@@ -87,6 +87,22 @@ describe('config-utils', () => {
       expect(result.claude).toBeDefined();
       expect(Object.keys(result)).toContain('copilot');
       expect(Object.keys(result)).toContain('claude');
+    });
+
+    it('should prioritize exact identifier matches over fuzzy display name matches', () => {
+      const agents = [
+        new MockAgent('copilot', 'GitHub Copilot'),
+        new MockAgent('pi', 'Pi Coding Agent'),
+      ];
+      const rawConfigs = {
+        pi: { enabled: true },
+      };
+
+      const result = mapRawAgentConfigs(rawConfigs, agents);
+
+      expect(result).toEqual({
+        pi: { enabled: true },
+      });
     });
 
     it('should ignore keys that do not match any agent', () => {
@@ -154,7 +170,7 @@ describe('config-utils', () => {
           outputPath: '/custom/path',
           outputPathInstructions: '/instructions',
           outputPathConfig: '/config',
-          mcp: { enabled: false }
+          mcp: { enabled: false },
         },
       };
 
@@ -165,14 +181,17 @@ describe('config-utils', () => {
         outputPath: '/custom/path',
         outputPathInstructions: '/instructions',
         outputPathConfig: '/config',
-        mcp: { enabled: false }
+        mcp: { enabled: false },
       });
     });
 
     it('should handle partial substring matches correctly', () => {
-      const mockAgentWithLongerName = new MockAgent('test', 'Test Agent With Long Name');
+      const mockAgentWithLongerName = new MockAgent(
+        'test',
+        'Test Agent With Long Name',
+      );
       const agents = [mockAgentWithLongerName];
-      
+
       const rawConfigs = {
         agent: { enabled: true }, // should match "Test Agent With Long Name"
         long: { enabled: false }, // should also match

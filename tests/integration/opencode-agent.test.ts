@@ -7,45 +7,53 @@ describe('OpenCode Agent Integration', () => {
   let tmpDir: string;
 
   beforeEach(async () => {
-    tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'ruler-opencode-integration-'));
+    tmpDir = await fs.mkdtemp(
+      path.join(os.tmpdir(), 'ruler-opencode-integration-'),
+    );
   });
 
   afterEach(async () => {
     await fs.rm(tmpDir, { recursive: true, force: true });
   });
 
-  it('should create opencode.json file when running ruler apply without MCP config', async () => {
+  it('should not create opencode.json file when running ruler apply without MCP config', async () => {
     // Create a minimal .ruler directory structure without mcp.json
     const rulerDir = path.join(tmpDir, '.ruler');
     await fs.mkdir(rulerDir, { recursive: true });
-    
+
     // Create basic AGENTS.md file
     await fs.writeFile(
       path.join(rulerDir, 'AGENTS.md'),
-      '# Test Rules\n\nThese are test rules for the OpenCode agent.'
+      '# Test Rules\n\nThese are test rules for the OpenCode agent.',
     );
 
     // Run ruler apply for just the OpenCode agent
-    await applyAllAgentConfigs(tmpDir, ['opencode'], undefined, true, undefined, false, false, false, true);
+    await applyAllAgentConfigs(
+      tmpDir,
+      ['opencode'],
+      undefined,
+      true,
+      undefined,
+      false,
+      false,
+      false,
+      true,
+    );
 
-    // Verify that opencode.json was created
+    // Verify that no empty MCP file was created
     const openCodePath = path.join(tmpDir, 'opencode.json');
-    const content = await fs.readFile(openCodePath, 'utf8');
-    const config = JSON.parse(content);
-
-    expect(config.$schema).toBe('https://opencode.ai/config.json');
-    expect(config.mcp).toEqual({});
+    await expect(fs.access(openCodePath)).rejects.toThrow();
   });
 
   it('should create opencode.json with MCP servers when MCP config exists', async () => {
     // Create .ruler directory structure with mcp.json
     const rulerDir = path.join(tmpDir, '.ruler');
     await fs.mkdir(rulerDir, { recursive: true });
-    
+
     // Create basic AGENTS.md file
     await fs.writeFile(
       path.join(rulerDir, 'AGENTS.md'),
-      '# Test Rules\n\nThese are test rules for the OpenCode agent.'
+      '# Test Rules\n\nThese are test rules for the OpenCode agent.',
     );
 
     // Create ruler.toml with MCP config
@@ -61,7 +69,17 @@ timeout = 45
     await fs.writeFile(path.join(rulerDir, 'ruler.toml'), rulerToml);
 
     // Run ruler apply for just the OpenCode agent
-    await applyAllAgentConfigs(tmpDir, ['opencode'], undefined, true, undefined, false, false, false, true);
+    await applyAllAgentConfigs(
+      tmpDir,
+      ['opencode'],
+      undefined,
+      true,
+      undefined,
+      false,
+      false,
+      false,
+      true,
+    );
 
     // Verify that opencode.json was created with the MCP server
     const openCodePath = path.join(tmpDir, 'opencode.json');
@@ -75,5 +93,61 @@ timeout = 45
       enabled: true,
       timeout: 45,
     });
+  });
+
+  it('should back up existing OpenCode instructions before overwriting', async () => {
+    const rulerDir = path.join(tmpDir, '.ruler');
+    await fs.mkdir(rulerDir, { recursive: true });
+    await fs.writeFile(path.join(rulerDir, 'AGENTS.md'), '# New Rules');
+
+    const instructionsPath = path.join(tmpDir, 'AGENTS.md');
+    await fs.writeFile(instructionsPath, 'Original OpenCode instructions');
+
+    await applyAllAgentConfigs(
+      tmpDir,
+      ['opencode'],
+      undefined,
+      true,
+      undefined,
+      false,
+      false,
+      false,
+      true,
+    );
+
+    await expect(fs.readFile(`${instructionsPath}.bak`, 'utf8')).resolves.toBe(
+      'Original OpenCode instructions',
+    );
+    await expect(fs.readFile(instructionsPath, 'utf8')).resolves.toContain(
+      '# New Rules',
+    );
+  });
+
+  it('should not back up existing OpenCode instructions when backup is disabled', async () => {
+    const rulerDir = path.join(tmpDir, '.ruler');
+    await fs.mkdir(rulerDir, { recursive: true });
+    await fs.writeFile(path.join(rulerDir, 'AGENTS.md'), '# New Rules');
+
+    const instructionsPath = path.join(tmpDir, 'AGENTS.md');
+    await fs.writeFile(instructionsPath, 'Original OpenCode instructions');
+
+    await applyAllAgentConfigs(
+      tmpDir,
+      ['opencode'],
+      undefined,
+      true,
+      undefined,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+    );
+
+    await expect(fs.access(`${instructionsPath}.bak`)).rejects.toThrow();
+    await expect(fs.readFile(instructionsPath, 'utf8')).resolves.toContain(
+      '# New Rules',
+    );
   });
 });

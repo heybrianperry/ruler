@@ -1,6 +1,7 @@
 import { IAgent, IAgentConfig } from './IAgent';
 import * as fs from 'fs/promises';
 import * as path from 'path';
+import { backupFile, writeGeneratedFile } from '../core/FileSystemUtils';
 
 export class OpenCodeAgent implements IAgent {
   getIdentifier(): string {
@@ -23,18 +24,29 @@ export class OpenCodeAgent implements IAgent {
     projectRoot: string,
     rulerMcpJson: Record<string, unknown> | null,
     agentConfig?: IAgentConfig,
+    backup = true,
   ): Promise<void> {
     const outputPaths = this.getDefaultOutputPath(projectRoot);
     const instructionsPath = path.resolve(
       projectRoot,
-      agentConfig?.outputPathInstructions ?? outputPaths['instructions'],
+      agentConfig?.outputPath ??
+        agentConfig?.outputPathInstructions ??
+        outputPaths['instructions'],
     );
     const mcpPath = path.resolve(
       projectRoot,
       agentConfig?.outputPathConfig ?? outputPaths['mcp'],
     );
 
-    await fs.writeFile(instructionsPath, concatenatedRules);
+    await fs.mkdir(path.dirname(instructionsPath), { recursive: true });
+    if (backup) {
+      await backupFile(instructionsPath);
+    }
+    await writeGeneratedFile(instructionsPath, concatenatedRules);
+
+    if (!rulerMcpJson) {
+      return;
+    }
 
     // Create OpenCode config with schema and MCP configuration
     let finalMcpConfig: { $schema: string; mcp: Record<string, unknown> } = {
@@ -53,23 +65,25 @@ export class OpenCodeAgent implements IAgent {
             ...((rulerMcpJson?.mcpServers ?? {}) as Record<string, unknown>),
           },
         };
-      } else if (rulerMcpJson) {
+      } else {
         finalMcpConfig = {
           $schema: 'https://opencode.ai/config.json',
-          mcp: (rulerMcpJson?.mcpServers ?? {}) as Record<string, unknown>,
+          mcp: (rulerMcpJson.mcpServers ?? {}) as Record<string, unknown>,
         };
       }
     } catch {
-      if (rulerMcpJson) {
-        finalMcpConfig = {
-          $schema: 'https://opencode.ai/config.json',
-          mcp: (rulerMcpJson?.mcpServers ?? {}) as Record<string, unknown>,
-        };
-      }
+      finalMcpConfig = {
+        $schema: 'https://opencode.ai/config.json',
+        mcp: (rulerMcpJson.mcpServers ?? {}) as Record<string, unknown>,
+      };
     }
 
     // Always write the config file, even if MCP is empty
-    await fs.writeFile(mcpPath, JSON.stringify(finalMcpConfig, null, 2));
+    await fs.mkdir(path.dirname(mcpPath), { recursive: true });
+    if (backup) {
+      await backupFile(mcpPath);
+    }
+    await writeGeneratedFile(mcpPath, JSON.stringify(finalMcpConfig, null, 2));
   }
 
   supportsMcpStdio(): boolean {

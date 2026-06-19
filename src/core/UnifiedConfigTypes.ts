@@ -2,6 +2,7 @@ import {
   McpConfig,
   GitignoreConfig,
   SkillsConfig,
+  SubagentsConfig,
   McpStrategy,
 } from '../types';
 
@@ -33,6 +34,7 @@ export interface TomlConfig {
   mcpServers?: Record<string, McpServerDef>;
   gitignore?: GitignoreConfig;
   skills?: SkillsConfig;
+  subagents?: SubagentsConfig;
   nested?: boolean;
 }
 
@@ -44,6 +46,7 @@ export interface AgentTomlConfig {
   outputPathInstructions?: string;
   outputPathConfig?: string;
   mcp?: McpConfig;
+  mcpServers?: Record<string, McpServerDef>;
   source: AgentConfigSourceMeta;
 }
 
@@ -75,7 +78,8 @@ export interface McpBundle {
 }
 
 export interface McpServerDef {
-  type?: 'stdio' | 'local' | 'remote';
+  [key: string]: unknown;
+  type?: string;
   command?: string;
   args?: string[];
   env?: Record<string, string>;

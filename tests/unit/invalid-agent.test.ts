@@ -14,7 +14,7 @@ jest.mock('fs', () => {
         if (path.includes('mcp.json')) {
           return Promise.resolve('{"mcpServers": {}}');
         }
-  if (path.includes('AGENTS.md')) {
+        if (path.includes('AGENTS.md')) {
           return Promise.resolve('# Test Instructions');
         }
         if (path.includes('ruler.toml')) {
@@ -45,15 +45,25 @@ jest.mock('fs', () => {
   };
 });
 
-jest.mock('../../src/core/FileSystemUtils', () => ({
-  findRulerDir: jest.fn().mockResolvedValue('/test/.ruler'),
-  readMarkdownFiles: jest.fn().mockResolvedValue([
-    {
-      path: '/test/.ruler/AGENTS.md',
-      content: '# Test Instructions',
-    },
-  ]),
-}));
+jest.mock('../../src/core/FileSystemUtils', () => {
+  const pathModule = jest.requireActual('path');
+  return {
+    findRulerDir: jest.fn().mockResolvedValue('/test/.ruler'),
+    resolveProjectRootForRulerDir: jest
+      .fn()
+      .mockImplementation((requestedProjectRoot, rulerDir) =>
+        pathModule.basename(rulerDir) === '.ruler'
+          ? pathModule.dirname(rulerDir)
+          : requestedProjectRoot,
+      ),
+    readMarkdownFiles: jest.fn().mockResolvedValue([
+      {
+        path: '/test/.ruler/AGENTS.md',
+        content: '# Test Instructions',
+      },
+    ]),
+  };
+});
 
 jest.mock('../../src/core/GitignoreUtils', () => ({
   updateGitignore: jest.fn().mockResolvedValue(undefined),
@@ -69,7 +79,7 @@ describe('Invalid Agent Handling', () => {
   it('should throw an error when an invalid agent is specified', async () => {
     // This test should fail initially, then pass after our fix
     await expect(
-      applyAllAgentConfigs('/test', ['nonexistentAgent'])
+      applyAllAgentConfigs('/test', ['nonexistentAgent']),
     ).rejects.toThrow('Invalid agent specified: nonexistentagent');
   });
 });

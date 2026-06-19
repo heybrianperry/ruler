@@ -1,6 +1,7 @@
 import * as fs from 'fs/promises';
-import { ensureDirExists } from '../core/FileSystemUtils';
+import { ensureDirExists, writeGeneratedFile } from '../core/FileSystemUtils';
 import * as path from 'path';
+import { McpStrategy } from '../types';
 
 interface OpenCodeMcpServer {
   type: 'local' | 'remote';
@@ -100,16 +101,30 @@ export async function propagateMcpToOpenCode(
   rulerMcpData: Record<string, unknown> | null,
   openCodeConfigPath: string,
   backup = true,
+  strategy: McpStrategy = 'merge',
 ): Promise<void> {
   const rulerMcp: RulerMcp = rulerMcpData || {};
 
   // Read existing OpenCode config if it exists
   let existingConfig: Partial<OpenCodeConfig> & Record<string, unknown> = {};
+  let existingContent: string | undefined;
   try {
-    const existingContent = await fs.readFile(openCodeConfigPath, 'utf8');
-    existingConfig = JSON.parse(existingContent);
-  } catch {
-    // File doesn't exist, we'll create it
+    existingContent = await fs.readFile(openCodeConfigPath, 'utf8');
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+      throw new Error(
+        `Could not read OpenCode config at ${openCodeConfigPath}: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
+  if (existingContent !== undefined) {
+    try {
+      existingConfig = JSON.parse(existingContent);
+    } catch (error) {
+      throw new Error(
+        `Invalid OpenCode config at ${openCodeConfigPath}: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
   }
 
   // Transform ruler MCP to OpenCode format
@@ -119,19 +134,24 @@ export async function propagateMcpToOpenCode(
   const finalConfig = {
     ...existingConfig,
     $schema: transformedConfig.$schema,
-    mcp: {
-      ...existingConfig.mcp,
-      ...transformedConfig.mcp,
-    },
+    mcp:
+      strategy === 'overwrite'
+        ? transformedConfig.mcp
+        : {
+            ...existingConfig.mcp,
+            ...transformedConfig.mcp,
+          },
   };
+  const finalContent = JSON.stringify(finalConfig, null, 2) + '\n';
+
+  if (existingContent === finalContent) {
+    return;
+  }
 
   await ensureDirExists(path.dirname(openCodeConfigPath));
   if (backup) {
     const { backupFile } = await import('../core/FileSystemUtils');
     await backupFile(openCodeConfigPath);
   }
-  await fs.writeFile(
-    openCodeConfigPath,
-    JSON.stringify(finalConfig, null, 2) + '\n',
-  );
+  await writeGeneratedFile(openCodeConfigPath, finalContent);
 }

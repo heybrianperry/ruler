@@ -1,5 +1,6 @@
 import * as path from 'path';
 import { promises as fs } from 'fs';
+import { writeGeneratedFile } from '../core/FileSystemUtils';
 
 /** Determine the native MCP config path for a given agent. */
 export async function getNativeMcpPath(
@@ -77,15 +78,54 @@ export async function getNativeMcpPath(
   return candidates.length > 0 ? candidates[0] : null;
 }
 
-/** Read native MCP config from disk, or return empty object if missing/invalid. */
+/** Read native MCP config from disk, or return empty object if missing. */
 export async function readNativeMcp(
   filePath: string,
 ): Promise<Record<string, unknown>> {
+  let text: string;
   try {
-    const text = await fs.readFile(filePath, 'utf8');
+    text = await fs.readFile(filePath, 'utf8');
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      return {};
+    }
+    throw new Error(
+      `Could not read MCP config at ${filePath}: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+
+  try {
     return JSON.parse(text) as Record<string, unknown>;
-  } catch {
-    return {};
+  } catch (error) {
+    throw new Error(
+      `Invalid MCP config at ${filePath}: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+}
+
+/** Read native Codex TOML MCP config from disk, or return empty object if missing. */
+export async function readNativeMcpToml(
+  filePath: string,
+  parseToml: (text: string) => Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  let text: string;
+  try {
+    text = await fs.readFile(filePath, 'utf8');
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      return {};
+    }
+    throw new Error(
+      `Could not read MCP config at ${filePath}: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+
+  try {
+    return parseToml(text);
+  } catch (error) {
+    throw new Error(
+      `Invalid MCP config at ${filePath}: ${error instanceof Error ? error.message : String(error)}`,
+    );
   }
 }
 
@@ -93,8 +133,8 @@ export async function readNativeMcp(
 export async function writeNativeMcp(
   filePath: string,
   data: unknown,
+  containmentRoot?: string,
 ): Promise<void> {
-  await fs.mkdir(path.dirname(filePath), { recursive: true });
   const text = JSON.stringify(data, null, 2) + '\n';
-  await fs.writeFile(filePath, text, 'utf8');
+  await writeGeneratedFile(filePath, text, containmentRoot);
 }

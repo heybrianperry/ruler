@@ -2,7 +2,7 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import os from 'os';
 import { parse as parseTOML } from '@iarna/toml';
-import { execSync } from 'child_process';
+import { execFileSync, execSync } from 'child_process';
 import {
   setupTestProject,
   teardownTestProject,
@@ -55,6 +55,10 @@ describe('End-to-End Ruler CLI', () => {
       force: true,
     });
     await fs.rm(path.join(projectRoot, '.gitignore'), { force: true });
+    await fs.rm(path.join(projectRoot, '.git'), {
+      recursive: true,
+      force: true,
+    });
     // Clean up any custom files from previous tests
     await fs.rm(path.join(projectRoot, 'awesome.md'), { force: true });
     await fs.rm(path.join(projectRoot, 'custom-claude.md'), { force: true });
@@ -213,6 +217,52 @@ output_path = "awesome.md"
     ).resolves.toContain('Rule A');
   });
 
+  it('does not generate nested apply outputs in XDG_CONFIG_HOME', async () => {
+    const xdgConfigHome = await fs.mkdtemp(
+      path.join(os.tmpdir(), 'ruler-xdg-config-'),
+    );
+    const nestedProject = await setupTestProject({
+      '.ruler/AGENTS.md': '# Project Rule',
+      '.ruler/ruler.toml': `default_agents = ["claude"]\nnested = true\n`,
+    });
+    const globalRulerDir = path.join(xdgConfigHome, 'ruler');
+
+    try {
+      await fs.mkdir(globalRulerDir, { recursive: true });
+      await fs.writeFile(
+        path.join(globalRulerDir, 'AGENTS.md'),
+        '# Global Rule',
+      );
+
+      execFileSync(
+        'node',
+        [
+          'dist/cli/index.js',
+          'apply',
+          '--nested',
+          '--agents',
+          'claude',
+          '--project-root',
+          nestedProject.projectRoot,
+        ],
+        {
+          env: { ...process.env, XDG_CONFIG_HOME: xdgConfigHome },
+          stdio: 'inherit',
+        },
+      );
+
+      await expect(
+        fs.readFile(path.join(nestedProject.projectRoot, 'CLAUDE.md'), 'utf8'),
+      ).resolves.toContain('Project Rule');
+      await expect(
+        fs.stat(path.join(xdgConfigHome, 'CLAUDE.md')),
+      ).rejects.toThrow();
+    } finally {
+      await teardownTestProject(nestedProject.projectRoot);
+      await fs.rm(xdgConfigHome, { recursive: true, force: true });
+    }
+  });
+
   describe('gitignore CLI flags', () => {
     it('accepts --gitignore flag without error', () => {
       expect(() => {
@@ -331,6 +381,27 @@ enabled = true`;
       expect(excludeContent).toContain('CLAUDE.md');
     });
 
+    it('removes generated paths from .git/info/exclude after local apply and revert', async () => {
+      runRulerWithInheritedStdio(
+        'apply --gitignore-local',
+        testProject.projectRoot,
+      );
+
+      const excludePath = path.join(
+        testProject.projectRoot,
+        '.git',
+        'info',
+        'exclude',
+      );
+      await expect(fs.readFile(excludePath, 'utf8')).resolves.toContain(
+        '# START Ruler Generated Files',
+      );
+
+      runRulerWithInheritedStdio('revert', testProject.projectRoot);
+
+      await expect(fs.access(excludePath)).rejects.toThrow();
+    });
+
     it('updates existing .gitignore preserving other content', async () => {
       const gitignorePath = path.join(testProject.projectRoot, '.gitignore');
       await fs.writeFile(gitignorePath, 'node_modules/\n*.log\n');
@@ -362,6 +433,25 @@ output_path = "custom-claude.md"`;
       const gitignoreContent = await fs.readFile(gitignorePath, 'utf8');
       expect(gitignoreContent).toContain('custom-claude.md');
       expect(gitignoreContent).not.toContain('CLAUDE.md');
+    });
+
+    it('tracks generic output_path for multi-path agent instructions in .gitignore', async () => {
+      const toml = `[agents.Aider]
+output_path = "custom-aider.md"`;
+      await fs.writeFile(
+        path.join(testProject.projectRoot, '.ruler', 'ruler.toml'),
+        toml,
+      );
+
+      runRulerWithInheritedStdio(
+        'apply --agents aider',
+        testProject.projectRoot,
+      );
+
+      const gitignorePath = path.join(testProject.projectRoot, '.gitignore');
+      const gitignoreContent = await fs.readFile(gitignorePath, 'utf8');
+      expect(gitignoreContent).toContain('custom-aider.md');
+      expect(gitignoreContent).not.toContain('/AGENTS.md');
     });
   });
 

@@ -34,6 +34,48 @@ function resolveSkillsEnabled(
 }
 
 /**
+ * Resolves backup enabled state based on precedence:
+ * CLI flag > ruler.toml > default (enabled).
+ */
+function resolveBackupEnabled(
+  cliFlag: boolean | undefined,
+  configSetting: boolean | undefined,
+): boolean {
+  return cliFlag !== undefined
+    ? cliFlag
+    : configSetting !== undefined
+      ? configSetting
+      : true; // default to enabled
+}
+
+/**
+ * Resolves subagents enabled state based on precedence:
+ * CLI flag > ruler.toml > default (disabled).
+ *
+ * When neither `[agents] enabled` (nor the legacy `[subagents] enabled`)
+ * nor a CLI flag is provided, propagation is disabled by default per spec.
+ * Subagent definitions are an opt-in feature — propagating them silently
+ * could leak runtime prompts into native subagent locations on projects
+ * that never intended to use the feature.
+ */
+function resolveSubagentsEnabled(
+  cliFlag: boolean | undefined,
+  configSetting: boolean | undefined,
+): boolean {
+  return cliFlag !== undefined
+    ? cliFlag
+    : configSetting !== undefined
+      ? configSetting
+      : false; // default to disabled — see spec: subagents must opt in
+}
+
+function resolveSubagentsCleanupOrphaned(
+  configSetting: boolean | undefined,
+): boolean {
+  return configSetting === true;
+}
+
+/**
  * Applies ruler configurations for all supported AI agents.
  * @param projectRoot Root directory of the project
  */
@@ -53,9 +95,10 @@ export async function applyAllAgentConfigs(
   dryRun = false,
   localOnly = false,
   nested = false,
-  backup = true,
+  backup?: boolean,
   skillsEnabled?: boolean,
   cliGitignoreLocal?: boolean,
+  subagentsEnabled?: boolean,
 ): Promise<void> {
   // Load configuration and rules
   logVerbose(
@@ -69,6 +112,7 @@ export async function applyAllAgentConfigs(
   let selectedAgents: IAgent[];
   let generatedPaths: string[];
   let loadedConfig: LoadedConfig;
+  let outputProjectRoot = projectRoot;
 
   if (nested) {
     const hierarchicalConfigs = await loadNestedConfigurations(
@@ -139,6 +183,37 @@ export async function applyAllAgentConfigs(
       }
     }
 
+    // Propagate subagents (mirrors skills handling for nested mode).
+    const subagentsEnabledResolved = resolveSubagentsEnabled(
+      subagentsEnabled,
+      rootConfig.subagents?.enabled,
+    );
+    const subagentsCleanupOrphaned = resolveSubagentsCleanupOrphaned(
+      rootConfig.subagents?.cleanup_orphaned,
+    );
+    const backupEnabledResolved = resolveBackupEnabled(
+      backup,
+      rootConfig.backup?.enabled,
+    );
+    {
+      const { propagateSubagents } = await import('./core/SubagentsProcessor');
+      for (const configEntry of hierarchicalConfigs) {
+        const nestedRoot = path.dirname(configEntry.rulerDir);
+        logVerbose(
+          `Propagating subagents for nested directory: ${nestedRoot}`,
+          verbose,
+        );
+        await propagateSubagents(
+          nestedRoot,
+          selectedAgents,
+          subagentsEnabledResolved,
+          subagentsCleanupOrphaned,
+          verbose,
+          dryRun,
+        );
+      }
+    }
+
     generatedPaths = await processHierarchicalConfigurations(
       selectedAgents,
       hierarchicalConfigs,
@@ -146,7 +221,7 @@ export async function applyAllAgentConfigs(
       dryRun,
       cliMcpEnabled,
       cliMcpStrategy,
-      backup,
+      backupEnabledResolved,
     );
   } else {
     const singleConfig = await loadSingleConfiguration(
@@ -154,6 +229,8 @@ export async function applyAllAgentConfigs(
       configPath,
       localOnly,
     );
+    const singleProjectRoot = singleConfig.projectRoot;
+    outputProjectRoot = singleProjectRoot;
 
     loadedConfig = singleConfig.config;
     singleConfig.config.cliAgents = includedAgents;
@@ -183,9 +260,33 @@ export async function applyAllAgentConfigs(
     if (skillsEnabledResolved) {
       const { propagateSkills } = await import('./core/SkillsProcessor');
       await propagateSkills(
-        projectRoot,
+        singleProjectRoot,
         selectedAgents,
         skillsEnabledResolved,
+        verbose,
+        dryRun,
+      );
+    }
+
+    // Propagate subagents (mirrors skills handling).
+    const subagentsEnabledResolvedSingle = resolveSubagentsEnabled(
+      subagentsEnabled,
+      singleConfig.config.subagents?.enabled,
+    );
+    const subagentsCleanupOrphanedSingle = resolveSubagentsCleanupOrphaned(
+      singleConfig.config.subagents?.cleanup_orphaned,
+    );
+    const backupEnabledResolvedSingle = resolveBackupEnabled(
+      backup,
+      singleConfig.config.backup?.enabled,
+    );
+    {
+      const { propagateSubagents } = await import('./core/SubagentsProcessor');
+      await propagateSubagents(
+        singleProjectRoot,
+        selectedAgents,
+        subagentsEnabledResolvedSingle,
+        subagentsCleanupOrphanedSingle,
         verbose,
         dryRun,
       );
@@ -194,12 +295,12 @@ export async function applyAllAgentConfigs(
     generatedPaths = await processSingleConfiguration(
       selectedAgents,
       singleConfig,
-      projectRoot,
+      singleProjectRoot,
       verbose,
       dryRun,
       cliMcpEnabled,
       cliMcpStrategy,
-      backup,
+      backupEnabledResolvedSingle,
     );
   }
 
@@ -213,14 +314,30 @@ export async function applyAllAgentConfigs(
     // Skills enabled by default or explicitly
     const { getSkillsGitignorePaths } = await import('./core/SkillsProcessor');
     const skillsPaths = await getSkillsGitignorePaths(
-      projectRoot,
+      outputProjectRoot,
       selectedAgents,
     );
-    allGeneratedPaths = [...generatedPaths, ...skillsPaths];
+    allGeneratedPaths = [...allGeneratedPaths, ...skillsPaths];
+  }
+
+  // Add subagents-generated paths to gitignore if subagents are enabled.
+  const subagentsEnabledForGitignore = resolveSubagentsEnabled(
+    subagentsEnabled,
+    loadedConfig.subagents?.enabled,
+  );
+  if (subagentsEnabledForGitignore) {
+    const { getSubagentsGitignorePaths } = await import(
+      './core/SubagentsProcessor'
+    );
+    const subagentPaths = await getSubagentsGitignorePaths(
+      outputProjectRoot,
+      selectedAgents,
+    );
+    allGeneratedPaths = [...allGeneratedPaths, ...subagentPaths];
   }
 
   await updateGitignore(
-    projectRoot,
+    outputProjectRoot,
     allGeneratedPaths,
     loadedConfig,
     cliGitignoreEnabled,

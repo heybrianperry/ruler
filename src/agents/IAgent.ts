@@ -16,6 +16,8 @@ export interface IAgentConfig {
   outputPathConfig?: string;
   /** MCP propagation config for this agent. */
   mcp?: McpConfig;
+  /** Agent-scoped MCP server definitions. */
+  mcpServers?: Record<string, Record<string, unknown>>;
 }
 
 export interface IAgent {
@@ -77,4 +79,12 @@ export interface IAgent {
    * Defaults to false if not implemented.
    */
   supportsNativeSkills?(): boolean;
+
+  /**
+   * Returns whether this agent has native subagent support (like Claude Code,
+   * Cursor, Codex CLI, GitHub Copilot). When true, subagent definitions from
+   * `.ruler/agents/` are propagated to the agent's native subagent location.
+   * Defaults to false if not implemented.
+   */
+  supportsNativeSubagents?(): boolean;
 }

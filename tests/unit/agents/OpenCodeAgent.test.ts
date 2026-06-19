@@ -1,11 +1,16 @@
 import { OpenCodeAgent } from '../../../src/agents/OpenCodeAgent';
 import * as fs from 'fs/promises';
-import * as path from 'path';
+import { writeGeneratedFile } from '../../../src/core/FileSystemUtils';
 
 // Mock fs module
 jest.mock('fs/promises');
+jest.mock('../../../src/core/FileSystemUtils', () => ({
+  backupFile: jest.fn(),
+  writeGeneratedFile: jest.fn(),
+}));
 
 const mockedFs = jest.mocked(fs);
+const mockedWriteGeneratedFile = jest.mocked(writeGeneratedFile);
 
 describe('OpenCodeAgent', () => {
   let agent: OpenCodeAgent;
@@ -41,19 +46,16 @@ describe('OpenCodeAgent', () => {
     expect(agent.supportsNativeSkills()).toBe(true);
   });
 
-  it('should create opencode.json with schema and empty MCP when no MCP config provided', async () => {
+  it('should write only instructions when no MCP config is provided', async () => {
     mockedFs.readFile.mockRejectedValue(new Error('File not found'));
 
     await agent.applyRulerConfig('rules', '/root', null);
 
-    expect(mockedFs.writeFile).toHaveBeenCalledWith('/root/AGENTS.md', 'rules');
-    expect(mockedFs.writeFile).toHaveBeenCalledWith(
-      '/root/opencode.json', 
-      JSON.stringify({
-        $schema: 'https://opencode.ai/config.json',
-        mcp: {}
-      }, null, 2)
+    expect(mockedWriteGeneratedFile).toHaveBeenCalledWith(
+      '/root/AGENTS.md',
+      'rules',
     );
+    expect(mockedWriteGeneratedFile).toHaveBeenCalledTimes(1);
   });
 
   it('should create opencode.json with MCP servers when MCP config provided', async () => {
@@ -61,27 +63,34 @@ describe('OpenCodeAgent', () => {
       mcpServers: {
         'test-server': {
           command: 'echo',
-          args: ['hello']
-        }
-      }
+          args: ['hello'],
+        },
+      },
     };
 
     mockedFs.readFile.mockRejectedValue(new Error('File not found'));
 
     await agent.applyRulerConfig('rules', '/root', mcpConfig);
 
-    expect(mockedFs.writeFile).toHaveBeenCalledWith('/root/AGENTS.md', 'rules');
-    expect(mockedFs.writeFile).toHaveBeenCalledWith(
-      '/root/opencode.json', 
-      JSON.stringify({
-        $schema: 'https://opencode.ai/config.json',
-        mcp: {
-          'test-server': {
-            command: 'echo',
-            args: ['hello']
-          }
-        }
-      }, null, 2)
+    expect(mockedWriteGeneratedFile).toHaveBeenCalledWith(
+      '/root/AGENTS.md',
+      'rules',
+    );
+    expect(mockedWriteGeneratedFile).toHaveBeenCalledWith(
+      '/root/opencode.json',
+      JSON.stringify(
+        {
+          $schema: 'https://opencode.ai/config.json',
+          mcp: {
+            'test-server': {
+              command: 'echo',
+              args: ['hello'],
+            },
+          },
+        },
+        null,
+        2,
+      ),
     );
   });
 
@@ -90,30 +99,51 @@ describe('OpenCodeAgent', () => {
       mcpServers: {
         'test-server': {
           command: 'echo',
-          args: ['hello']
-        }
-      }
+          args: ['hello'],
+        },
+      },
     };
 
     mockedFs.readFile.mockRejectedValue(new Error('File not found'));
 
     await agent.applyRulerConfig('rules', '/root', mcpConfig, {
       outputPathInstructions: 'CUSTOM.md',
-      outputPathConfig: 'custom-opencode.json'
+      outputPathConfig: 'custom-opencode.json',
     });
 
-    expect(mockedFs.writeFile).toHaveBeenCalledWith('/root/CUSTOM.md', 'rules');
-    expect(mockedFs.writeFile).toHaveBeenCalledWith(
-      '/root/custom-opencode.json', 
-      JSON.stringify({
-        $schema: 'https://opencode.ai/config.json',
-        mcp: {
-          'test-server': {
-            command: 'echo',
-            args: ['hello']
-          }
-        }
-      }, null, 2)
+    expect(mockedWriteGeneratedFile).toHaveBeenCalledWith(
+      '/root/CUSTOM.md',
+      'rules',
+    );
+    expect(mockedWriteGeneratedFile).toHaveBeenCalledWith(
+      '/root/custom-opencode.json',
+      JSON.stringify(
+        {
+          $schema: 'https://opencode.ai/config.json',
+          mcp: {
+            'test-server': {
+              command: 'echo',
+              args: ['hello'],
+            },
+          },
+        },
+        null,
+        2,
+      ),
+    );
+  });
+
+  it('should use outputPath as the instructions path when provided', async () => {
+    mockedFs.readFile.mockRejectedValue(new Error('File not found'));
+
+    await agent.applyRulerConfig('rules', '/root', null, {
+      outputPath: 'CUSTOM.md',
+      outputPathInstructions: 'IGNORED.md',
+    });
+
+    expect(mockedWriteGeneratedFile).toHaveBeenCalledWith(
+      '/root/CUSTOM.md',
+      'rules',
     );
   });
 });

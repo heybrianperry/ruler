@@ -122,6 +122,23 @@ describe('OpenCode MCP Integration', () => {
       expect(result.mcp['remote-with-timeout'].timeout).toBe(45);
     });
 
+    it('throws without overwriting invalid existing OpenCode config', async () => {
+      const openCodePath = path.join(tmpDir, 'opencode.json');
+      const invalidConfig = '{ invalid json';
+      await fs.writeFile(openCodePath, invalidConfig);
+
+      await expect(
+        propagateMcpToOpenCode(
+          { mcpServers: { repo: { command: 'node' } } },
+          openCodePath,
+        ),
+      ).rejects.toThrow(/Invalid OpenCode config/i);
+
+      await expect(fs.readFile(openCodePath, 'utf8')).resolves.toBe(
+        invalidConfig,
+      );
+    });
+
     it('merges with existing OpenCode configuration', async () => {
       const openCodePath = path.join(tmpDir, 'opencode.json');
 
@@ -165,6 +182,43 @@ describe('OpenCode MCP Integration', () => {
       });
     });
 
+    it('overwrites existing OpenCode MCP servers while preserving unrelated settings', async () => {
+      const openCodePath = path.join(tmpDir, 'opencode.json');
+
+      const existingConfig = {
+        $schema: 'https://opencode.ai/config.json',
+        mcp: {
+          'existing-server': {
+            type: 'local',
+            command: ['existing-command'],
+            enabled: true,
+          },
+        },
+        otherSetting: 'preserved',
+      };
+      await fs.writeFile(openCodePath, JSON.stringify(existingConfig));
+
+      const rulerMcp = {
+        mcpServers: {
+          'new-server': {
+            command: 'new-command',
+          },
+        },
+      };
+
+      await propagateMcpToOpenCode(rulerMcp, openCodePath, false, 'overwrite');
+
+      const result = JSON.parse(await fs.readFile(openCodePath, 'utf8'));
+
+      expect(result.otherSetting).toBe('preserved');
+      expect(Object.keys(result.mcp)).toEqual(['new-server']);
+      expect(result.mcp['new-server']).toEqual({
+        type: 'local',
+        command: ['new-command'],
+        enabled: true,
+      });
+    });
+
     it('creates minimal opencode.json when no ruler MCP config exists', async () => {
       const openCodePath = path.join(tmpDir, 'opencode.json');
 
@@ -191,6 +245,29 @@ describe('OpenCode MCP Integration', () => {
 
       expect(result.$schema).toBe('https://opencode.ai/config.json');
       expect(result.mcp).toEqual({});
+    });
+
+    it('does not rewrite or back up unchanged generated config', async () => {
+      const openCodePath = path.join(tmpDir, 'opencode.json');
+      const rulerMcp = {
+        mcpServers: {
+          repo: {
+            command: 'node',
+            args: ['server.js'],
+          },
+        },
+      };
+
+      await propagateMcpToOpenCode(rulerMcp, openCodePath);
+      const statBefore = await fs.stat(openCodePath);
+      const contentBefore = await fs.readFile(openCodePath, 'utf8');
+
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      await propagateMcpToOpenCode(rulerMcp, openCodePath);
+
+      await expect(fs.access(`${openCodePath}.bak`)).rejects.toThrow();
+      expect(await fs.readFile(openCodePath, 'utf8')).toBe(contentBefore);
+      expect((await fs.stat(openCodePath)).mtimeMs).toBe(statBefore.mtimeMs);
     });
   });
 });

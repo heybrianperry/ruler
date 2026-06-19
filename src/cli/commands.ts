@@ -75,13 +75,17 @@ export function run(): void {
           .option('backup', {
             type: 'boolean',
             description:
-              'Enable/disable creation of .bak backup files (default: enabled)',
-            default: true,
+              'Enable/disable creation of .bak backup files (default: from config or enabled)',
           })
           .option('skills', {
             type: 'boolean',
             description:
               'Enable/disable skills support (experimental, default: enabled)',
+          })
+          .option('subagents', {
+            type: 'boolean',
+            description:
+              'Enable/disable subagents support (experimental, default: disabled)',
           });
       },
       applyHandler,

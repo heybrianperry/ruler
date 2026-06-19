@@ -1,6 +1,7 @@
 import { IAgent, IAgentConfig } from './IAgent';
 import * as fs from 'fs/promises';
 import * as path from 'path';
+import { backupFile, writeGeneratedFile } from '../core/FileSystemUtils';
 
 export class CrushAgent implements IAgent {
   getIdentifier(): string {
@@ -62,16 +63,30 @@ export class CrushAgent implements IAgent {
     projectRoot: string,
     rulerMcpJson: Record<string, unknown> | null,
     agentConfig?: IAgentConfig,
+    backup = true,
   ): Promise<void> {
     const outputPaths = this.getDefaultOutputPath(projectRoot);
-    const instructionsPath =
-      agentConfig?.outputPathInstructions ?? outputPaths['instructions'];
-    const mcpPath = agentConfig?.outputPathConfig ?? outputPaths['mcp'];
+    const instructionsPath = path.resolve(
+      projectRoot,
+      agentConfig?.outputPath ??
+        agentConfig?.outputPathInstructions ??
+        outputPaths['instructions'],
+    );
+    const mcpPath = path.resolve(
+      projectRoot,
+      agentConfig?.outputPathConfig ?? outputPaths['mcp'],
+    );
 
-    await fs.writeFile(instructionsPath, concatenatedRules);
+    await fs.mkdir(path.dirname(instructionsPath), { recursive: true });
+    if (backup) {
+      await backupFile(instructionsPath);
+    }
+    await writeGeneratedFile(instructionsPath, concatenatedRules);
 
     // Always transform from mcpServers ({ mcpServers: ... }) to { mcp: ... } for Crush
     let finalMcpConfig: { mcp: Record<string, unknown> } = { mcp: {} };
+
+    const strategy = agentConfig?.mcp?.strategy ?? 'merge';
 
     try {
       const existingMcpConfig = JSON.parse(await fs.readFile(mcpPath, 'utf-8'));
@@ -82,7 +97,7 @@ export class CrushAgent implements IAgent {
         finalMcpConfig = {
           ...existingMcpConfig,
           mcp: {
-            ...(existingMcpConfig.mcp || {}),
+            ...(strategy === 'merge' ? existingMcpConfig.mcp || {} : {}),
             ...transformedServers,
           },
         };
@@ -106,7 +121,14 @@ export class CrushAgent implements IAgent {
     }
 
     if (Object.keys(finalMcpConfig.mcp).length > 0) {
-      await fs.writeFile(mcpPath, JSON.stringify(finalMcpConfig, null, 2));
+      await fs.mkdir(path.dirname(mcpPath), { recursive: true });
+      if (backup) {
+        await backupFile(mcpPath);
+      }
+      await writeGeneratedFile(
+        mcpPath,
+        JSON.stringify(finalMcpConfig, null, 2),
+      );
     }
   }
 

@@ -1,7 +1,8 @@
 import * as fs from 'fs/promises';
 import { parse as parseTOML, stringify } from '@iarna/toml';
-import { ensureDirExists } from '../core/FileSystemUtils';
+import { ensureDirExists, writeGeneratedFile } from '../core/FileSystemUtils';
 import * as path from 'path';
+import { McpStrategy } from '../types';
 
 interface StdioServer {
   name: string;
@@ -64,13 +65,23 @@ function extractApiKey(headers?: Record<string, string>): string | null {
 }
 
 function createRemoteServerEntry(
+  name: string,
   url: string,
   headers?: Record<string, string>,
 ): string | RemoteServerEntry {
+  const hasHeaders = headers && Object.keys(headers).length > 0;
   const apiKey = extractApiKey(headers);
-  if (apiKey) {
-    return { url, api_key: apiKey };
+
+  if (hasHeaders) {
+    if (apiKey) {
+      return { url, api_key: apiKey };
+    }
+
+    throw new Error(
+      `OpenHands MCP remote server "${name}" has unsupported headers. OpenHands config.toml can only represent a Bearer Authorization header as api_key.`,
+    );
   }
+
   return url;
 }
 
@@ -98,6 +109,7 @@ export async function propagateMcpToOpenHands(
   rulerMcpData: Record<string, unknown> | null,
   openHandsConfigPath: string,
   backup = true,
+  strategy: McpStrategy = 'merge',
 ): Promise<void> {
   const rulerMcp: Record<string, unknown> = rulerMcpData || {};
 
@@ -120,11 +132,24 @@ export async function propagateMcpToOpenHands(
       shttp_servers?: (string | RemoteServerEntry)[];
     };
   } = {};
+  let tomlContent: string | undefined;
   try {
-    const tomlContent = await fs.readFile(openHandsConfigPath, 'utf8');
-    config = parseTOML(tomlContent);
-  } catch {
-    // File doesn't exist, we'll create it.
+    tomlContent = await fs.readFile(openHandsConfigPath, 'utf8');
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+      throw new Error(
+        `Could not read OpenHands config at ${openHandsConfigPath}: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
+  if (tomlContent !== undefined) {
+    try {
+      config = parseTOML(tomlContent);
+    } catch (error) {
+      throw new Error(
+        `Invalid OpenHands config at ${openHandsConfigPath}: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
   }
 
   if (!config.mcp) {
@@ -140,22 +165,28 @@ export async function propagateMcpToOpenHands(
     config.mcp.shttp_servers = [];
   }
 
-  // Build maps for merging existing servers
+  // Build maps for merging existing servers, or start fresh when overwriting.
   const existingStdioServers = new Map<string, StdioServer>(
-    config.mcp.stdio_servers.map((s: StdioServer) => [s.name, s]),
+    strategy === 'overwrite'
+      ? []
+      : config.mcp.stdio_servers.map((s: StdioServer) => [s.name, s]),
   );
 
   const existingSseServers = new Map<string, string | RemoteServerEntry>();
-  config.mcp.sse_servers.forEach((entry: string | RemoteServerEntry) => {
-    const url = typeof entry === 'string' ? entry : entry.url;
-    existingSseServers.set(url, entry);
-  });
+  if (strategy !== 'overwrite') {
+    config.mcp.sse_servers.forEach((entry: string | RemoteServerEntry) => {
+      const url = typeof entry === 'string' ? entry : entry.url;
+      existingSseServers.set(url, entry);
+    });
+  }
 
   const existingShttpServers = new Map<string, string | RemoteServerEntry>();
-  config.mcp.shttp_servers.forEach((entry: string | RemoteServerEntry) => {
-    const url = typeof entry === 'string' ? entry : entry.url;
-    existingShttpServers.set(url, entry);
-  });
+  if (strategy !== 'overwrite') {
+    config.mcp.shttp_servers.forEach((entry: string | RemoteServerEntry) => {
+      const url = typeof entry === 'string' ? entry : entry.url;
+      existingShttpServers.set(url, entry);
+    });
+  }
 
   for (const [name, serverDef] of Object.entries(rulerServers)) {
     if (isRulerMcpServer(serverDef)) {
@@ -169,7 +200,11 @@ export async function propagateMcpToOpenHands(
       } else if (serverDef.url) {
         // Remote server
         const classification = classifyRemoteServer(serverDef.url);
-        const entry = createRemoteServerEntry(serverDef.url, serverDef.headers);
+        const entry = createRemoteServerEntry(
+          name,
+          serverDef.url,
+          serverDef.headers,
+        );
 
         if (classification === 'sse') {
           existingSseServers.set(serverDef.url, entry);
@@ -188,11 +223,16 @@ export async function propagateMcpToOpenHands(
   config.mcp.shttp_servers = normalizeRemoteServerArray(
     Array.from(existingShttpServers.values()),
   );
+  const finalContent = stringify(config);
+
+  if (tomlContent === finalContent) {
+    return;
+  }
 
   await ensureDirExists(path.dirname(openHandsConfigPath));
   if (backup) {
     const { backupFile } = await import('../core/FileSystemUtils');
     await backupFile(openHandsConfigPath);
   }
-  await fs.writeFile(openHandsConfigPath, stringify(config));
+  await writeGeneratedFile(openHandsConfigPath, finalContent);
 }

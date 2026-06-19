@@ -2,6 +2,7 @@ import { IAgentConfig } from './IAgent';
 import * as path from 'path';
 import { promises as fs } from 'fs';
 import { AgentsMdAgent } from './AgentsMdAgent';
+import { writeGeneratedFile } from '../core/FileSystemUtils';
 
 export class GeminiCliAgent extends AgentsMdAgent {
   getIdentifier(): string {
@@ -12,19 +13,36 @@ export class GeminiCliAgent extends AgentsMdAgent {
     return 'Gemini CLI';
   }
 
+  private getContextFileName(projectRoot: string, agentConfig?: IAgentConfig) {
+    const outputPath = agentConfig?.outputPath ?? 'AGENTS.md';
+    return path
+      .relative(projectRoot, path.resolve(projectRoot, outputPath))
+      .replace(/\\/g, '/');
+  }
+
   async applyRulerConfig(
     concatenatedRules: string,
     projectRoot: string,
     rulerMcpJson: Record<string, unknown> | null,
     agentConfig?: IAgentConfig,
+    backup = true,
   ): Promise<void> {
     // First, perform idempotent write of AGENTS.md via base class
-    await super.applyRulerConfig(concatenatedRules, projectRoot, null, {
-      outputPath: agentConfig?.outputPath,
-    });
+    await super.applyRulerConfig(
+      concatenatedRules,
+      projectRoot,
+      null,
+      {
+        outputPath: agentConfig?.outputPath,
+      },
+      backup,
+    );
 
-    // Prepare .gemini/settings.json with contextFileName and MCP configuration
-    const settingsPath = path.join(projectRoot, '.gemini', 'settings.json');
+    // Prepare settings with contextFileName and MCP configuration
+    const settingsPath = path.resolve(
+      projectRoot,
+      agentConfig?.outputPathConfig ?? path.join('.gemini', 'settings.json'),
+    );
     let existingSettings: Record<string, unknown> = {};
     try {
       const raw = await fs.readFile(settingsPath, 'utf8');
@@ -37,7 +55,7 @@ export class GeminiCliAgent extends AgentsMdAgent {
 
     const updated = {
       ...existingSettings,
-      contextFileName: 'AGENTS.md',
+      contextFileName: this.getContextFileName(projectRoot, agentConfig),
     } as Record<string, unknown>;
 
     // Handle MCP server configuration if provided
@@ -84,8 +102,7 @@ export class GeminiCliAgent extends AgentsMdAgent {
       }
     }
 
-    await fs.mkdir(path.dirname(settingsPath), { recursive: true });
-    await fs.writeFile(settingsPath, JSON.stringify(updated, null, 2));
+    await writeGeneratedFile(settingsPath, JSON.stringify(updated, null, 2));
   }
 
   // Ensure MCP merging uses the correct key for Gemini (.gemini/settings.json)
