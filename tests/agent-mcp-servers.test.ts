@@ -35,6 +35,7 @@ oauth = { clientId = "CLAUDE_ID", callbackPort = 3118 }
       await fs.readFile(path.join(projectRoot, '.cursor', 'mcp.json'), 'utf8'),
     );
     expect(cursorMcp.mcpServers.slack).toEqual({
+      type: 'remote',
       url: 'https://mcp.slack.com/mcp',
       auth: { CLIENT_ID: 'CURSOR_ID' },
     });
@@ -76,5 +77,28 @@ headers = { Authorization = "Bearer remote-token" }
       url: 'https://search.example.com/mcp',
       headers: { Authorization: 'Bearer remote-token' },
     });
+  });
+
+  it('skips agent-specific server definitions with invalid command and url types', async () => {
+    const toml = `
+[agents.cursor.mcp_servers.bad_stdio]
+command = 123
+args = ["server.js"]
+
+[agents.cursor.mcp_servers.bad_remote]
+url = false
+`;
+
+    testProject = await setupTestProject({
+      '.ruler/AGENTS.md': '# Test instructions',
+      '.ruler/ruler.toml': toml,
+    });
+
+    const { projectRoot } = testProject;
+    runRuler('apply --agents cursor --no-backup --no-gitignore', projectRoot);
+
+    await expect(
+      fs.access(path.join(projectRoot, '.cursor', 'mcp.json')),
+    ).rejects.toThrow();
   });
 });

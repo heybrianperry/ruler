@@ -14,11 +14,12 @@ import {
   resolveSelectedAgents,
 } from './core/agent-selection';
 import { mapRawAgentConfigs } from './core/config-utils';
-import { resolveIgnoreFilePath } from './core/GitignoreUtils';
+import {
+  removeCompleteRulerBlocks,
+  resolveIgnoreFilePath,
+} from './core/GitignoreUtils';
 
 const agents: IAgent[] = allAgents;
-const RULER_IGNORE_START_MARKER = '# START Ruler Generated Files';
-const RULER_IGNORE_END_MARKER = '# END Ruler Generated Files';
 const MANAGED_IGNORE_FILES = ['.gitignore', '.git/info/exclude'];
 
 export { allAgents };
@@ -129,6 +130,7 @@ export async function revertAllAgentConfigs(
   let totalFilesRemoved = 0;
   let totalBackupsRemoved = 0;
   let totalDirectoriesRemoved = 0;
+  const processedPaths = new Set<string>();
 
   for (const agent of selected) {
     const prefix = actionPrefix(dryRun);
@@ -142,6 +144,7 @@ export async function revertAllAgentConfigs(
       keepBackups,
       verbose,
       dryRun,
+      processedPaths,
     );
 
     totalFilesProcessed += result.restored + result.removed;
@@ -227,20 +230,19 @@ async function cleanIgnoreFile(
     return false;
   }
 
-  const content = await fs.readFile(ignorePath, 'utf8');
-
-  const startIndex = content.indexOf(RULER_IGNORE_START_MARKER);
-  if (startIndex === -1) {
-    logVerbose(`No ruler-managed block found in ${ignoreFile}`, verbose);
-    return false;
-  }
-
-  const endIndex = content.indexOf(
-    RULER_IGNORE_END_MARKER,
-    startIndex + RULER_IGNORE_START_MARKER.length,
+  await FileSystemUtils.assertManagedPathInsideRoot(
+    ignorePath,
+    projectRoot,
+    `Refusing to clean ${ignoreFile} through symlinked path`,
+  );
+  await FileSystemUtils.assertNotSymbolicLink(
+    ignorePath,
+    `Refusing to clean symlinked ${ignoreFile}`,
   );
 
-  if (endIndex === -1) {
+  const content = await fs.readFile(ignorePath, 'utf8');
+  const cleaned = removeCompleteRulerBlocks(content);
+  if (!cleaned.removed) {
     logVerbose(`No ruler-managed block found in ${ignoreFile}`, verbose);
     return false;
   }
@@ -253,19 +255,11 @@ async function cleanIgnoreFile(
       verbose,
     );
   } else {
-    const beforeBlock = content.substring(0, startIndex);
-    const afterBlock = content.substring(
-      endIndex + RULER_IGNORE_END_MARKER.length,
-    );
-
-    let newContent = beforeBlock + afterBlock;
-    newContent = newContent.replace(/\n{3,}/g, '\n\n'); // Replace 3+ newlines with 2
-
-    if (newContent.trim() === '') {
+    if (cleaned.content.trim() === '') {
       await fs.unlink(ignorePath);
       logVerbose(`${prefix} Removed empty ${ignoreFile} file`, verbose);
     } else {
-      await fs.writeFile(ignorePath, newContent);
+      await fs.writeFile(ignorePath, cleaned.content);
       logVerbose(`${prefix} Removed ruler block from ${ignoreFile}`, verbose);
     }
   }

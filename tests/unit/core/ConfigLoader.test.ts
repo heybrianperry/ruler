@@ -195,6 +195,35 @@ describe('ConfigLoader', () => {
     );
   });
 
+  it('normalises agent-scoped MCP server transport types', async () => {
+    const content = `
+      [agents.cursor.mcp_servers.local]
+      type = "remote"
+      command = "node"
+      args = ["server.js"]
+
+      [agents.cursor.mcp_servers.api]
+      type = "stdio"
+      url = "https://api.example.com/mcp"
+      args = ["stale-wrapper-arg"]
+    `;
+    await fs.writeFile(path.join(rulerDir, 'ruler.toml'), content);
+
+    const config = await loadConfig({ projectRoot: tmpDir });
+
+    expect(config.agentConfigs.cursor.mcpServers).toEqual({
+      local: {
+        type: 'stdio',
+        command: 'node',
+        args: ['server.js'],
+      },
+      api: {
+        type: 'remote',
+        url: 'https://api.example.com/mcp',
+      },
+    });
+  });
+
   it.each([
     ['output_path', '../outside.md'],
     ['output_path_instructions', '../outside-instructions.md'],
@@ -499,6 +528,24 @@ describe('ConfigLoader', () => {
         expect(message).toMatch(/Invalid configuration/i);
         expect(message).toContain('agents.foo');
       }
+    });
+
+    it('rejects unknown top-level keys with an actionable error', async () => {
+      const content = 'defaults_agents = ["claude"]\n';
+      await fs.writeFile(path.join(rulerDir, 'ruler.toml'), content);
+
+      await expect(loadConfig({ projectRoot: tmpDir })).rejects.toThrow(
+        /defaults_agents/i,
+      );
+    });
+
+    it('rejects unknown per-agent config keys with an actionable error', async () => {
+      const content = '[agents.claude]\noutpt_path = "CLAUDE.md"\n';
+      await fs.writeFile(path.join(rulerDir, 'ruler.toml'), content);
+
+      await expect(loadConfig({ projectRoot: tmpDir })).rejects.toThrow(
+        /agents\.claude\.outpt_path/i,
+      );
     });
 
     // Independence per spec: global `[agents].enabled` controls native

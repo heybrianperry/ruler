@@ -1,7 +1,11 @@
 import { IAgent, IAgentConfig } from './IAgent';
 import * as fs from 'fs/promises';
 import * as path from 'path';
-import { backupFile, writeGeneratedFile } from '../core/FileSystemUtils';
+import {
+  assertManagedPathInsideRoot,
+  backupFile,
+  writeGeneratedFile,
+} from '../core/FileSystemUtils';
 
 export class OpenCodeAgent implements IAgent {
   getIdentifier(): string {
@@ -38,11 +42,10 @@ export class OpenCodeAgent implements IAgent {
       agentConfig?.outputPathConfig ?? outputPaths['mcp'],
     );
 
-    await fs.mkdir(path.dirname(instructionsPath), { recursive: true });
     if (backup) {
-      await backupFile(instructionsPath);
+      await backupFile(instructionsPath, projectRoot);
     }
-    await writeGeneratedFile(instructionsPath, concatenatedRules);
+    await writeGeneratedFile(instructionsPath, concatenatedRules, projectRoot);
 
     if (!rulerMcpJson) {
       return;
@@ -54,6 +57,11 @@ export class OpenCodeAgent implements IAgent {
       mcp: {},
     };
 
+    await assertManagedPathInsideRoot(
+      mcpPath,
+      projectRoot,
+      'Refusing to write generated file outside project',
+    );
     try {
       const existingMcpConfig = JSON.parse(await fs.readFile(mcpPath, 'utf-8'));
       if (existingMcpConfig && typeof existingMcpConfig === 'object') {
@@ -79,11 +87,14 @@ export class OpenCodeAgent implements IAgent {
     }
 
     // Always write the config file, even if MCP is empty
-    await fs.mkdir(path.dirname(mcpPath), { recursive: true });
     if (backup) {
-      await backupFile(mcpPath);
+      await backupFile(mcpPath, projectRoot);
     }
-    await writeGeneratedFile(mcpPath, JSON.stringify(finalMcpConfig, null, 2));
+    await writeGeneratedFile(
+      mcpPath,
+      JSON.stringify(finalMcpConfig, null, 2),
+      projectRoot,
+    );
   }
 
   supportsMcpStdio(): boolean {

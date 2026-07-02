@@ -1,7 +1,11 @@
 import { IAgent, IAgentConfig } from './IAgent';
 import * as fs from 'fs/promises';
 import * as path from 'path';
-import { backupFile, writeGeneratedFile } from '../core/FileSystemUtils';
+import {
+  assertManagedPathInsideRoot,
+  backupFile,
+  writeGeneratedFile,
+} from '../core/FileSystemUtils';
 
 export class CrushAgent implements IAgent {
   getIdentifier(): string {
@@ -77,17 +81,21 @@ export class CrushAgent implements IAgent {
       agentConfig?.outputPathConfig ?? outputPaths['mcp'],
     );
 
-    await fs.mkdir(path.dirname(instructionsPath), { recursive: true });
     if (backup) {
-      await backupFile(instructionsPath);
+      await backupFile(instructionsPath, projectRoot);
     }
-    await writeGeneratedFile(instructionsPath, concatenatedRules);
+    await writeGeneratedFile(instructionsPath, concatenatedRules, projectRoot);
 
     // Always transform from mcpServers ({ mcpServers: ... }) to { mcp: ... } for Crush
     let finalMcpConfig: { mcp: Record<string, unknown> } = { mcp: {} };
 
     const strategy = agentConfig?.mcp?.strategy ?? 'merge';
 
+    await assertManagedPathInsideRoot(
+      mcpPath,
+      projectRoot,
+      'Refusing to write generated file outside project',
+    );
     try {
       const existingMcpConfig = JSON.parse(await fs.readFile(mcpPath, 'utf-8'));
       if (existingMcpConfig && typeof existingMcpConfig === 'object') {
@@ -121,13 +129,13 @@ export class CrushAgent implements IAgent {
     }
 
     if (Object.keys(finalMcpConfig.mcp).length > 0) {
-      await fs.mkdir(path.dirname(mcpPath), { recursive: true });
       if (backup) {
-        await backupFile(mcpPath);
+        await backupFile(mcpPath, projectRoot);
       }
       await writeGeneratedFile(
         mcpPath,
         JSON.stringify(finalMcpConfig, null, 2),
+        projectRoot,
       );
     }
   }

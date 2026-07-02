@@ -1,20 +1,21 @@
 {
   "name": "@intellectronica/ruler",
-  "version": "0.3.42",
+  "version": "0.3.44",
   "description": "Ruler — apply the same rules to all coding agents",
   "main": "dist/lib.js",
   "types": "dist/lib.d.ts",
   "scripts": {
     "lint": "eslint \"src/**/*.{ts,tsx}\"",
-    "format": "prettier --write package.json package-lock.json tsconfig.json README.md \".github/**/*.yml\" \"src/**/*.{ts,tsx,json,md}\" \"tests/**/*.{ts,tsx,json,md}\"",
-    "format:check": "prettier --check package.json package-lock.json tsconfig.json README.md \".github/**/*.yml\" \"src/**/*.{ts,tsx,json,md}\" \"tests/**/*.{ts,tsx,json,md}\"",
+    "format": "prettier --write package.json package-lock.json tsconfig.json README.md .prettierrc.js eslint.config.mjs jest.config.js jest.setup.js \".github/**/*.yml\" \"src/**/*.{ts,tsx,json,md}\" \"tests/**/*.{ts,tsx,json,md}\"",
+    "format:check": "prettier --check package.json package-lock.json tsconfig.json README.md .prettierrc.js eslint.config.mjs jest.config.js jest.setup.js \".github/**/*.yml\" \"src/**/*.{ts,tsx,json,md}\" \"tests/**/*.{ts,tsx,json,md}\"",
     "test": "jest --coverage",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
     "test:integration": "jest tests/e2e/ruler.integration.test.ts --verbose",
-    "build": "tsc",
+    "clean": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\"",
+    "build": "npm run clean && tsc",
     "check:package-lock": "node -e \"const pkg=require('./package.json'); const lock=require('./package-lock.json'); const root=lock.packages?.['']; if (lock.version !== pkg.version || root?.version !== pkg.version) { console.error('package-lock.json version metadata must match package.json version'); process.exit(1); }\"",
-    "prepare": "npm run build"
+    "prepublishOnly": "npm run build"
   },
   "repository": {
     "type": "git",

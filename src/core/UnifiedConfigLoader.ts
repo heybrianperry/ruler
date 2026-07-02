@@ -1,5 +1,6 @@
 import { promises as fs } from 'fs';
 import * as path from 'path';
+import * as os from 'os';
 import { parse as parseTOML } from '@iarna/toml';
 import { sha256, stableJson } from './hash';
 import { concatenateRules } from './RuleProcessor';
@@ -42,6 +43,53 @@ function copyAdditionalMcpServerFields(
   );
 }
 
+async function resolveImplicitTomlFile(
+  projectRoot: string,
+  rulerDir: string,
+  checkGlobal: boolean,
+): Promise<string | undefined> {
+  const localTomlFile = path.join(rulerDir, 'ruler.toml');
+  if (await fileExists(localTomlFile)) {
+    return localTomlFile;
+  }
+
+  const projectTomlFile = path.join(projectRoot, '.ruler', 'ruler.toml');
+  if (
+    path.resolve(projectTomlFile) !== path.resolve(localTomlFile) &&
+    (await fileExists(projectTomlFile))
+  ) {
+    return projectTomlFile;
+  }
+
+  if (!checkGlobal) {
+    return undefined;
+  }
+
+  const xdgConfigDir =
+    process.env.XDG_CONFIG_HOME || path.join(os.homedir(), '.config');
+  const globalTomlFile = path.join(xdgConfigDir, 'ruler', 'ruler.toml');
+  if (
+    path.resolve(globalTomlFile) !== path.resolve(localTomlFile) &&
+    (await fileExists(globalTomlFile))
+  ) {
+    return globalTomlFile;
+  }
+
+  return undefined;
+}
+
+async function fileExists(filePath: string): Promise<boolean> {
+  try {
+    await fs.access(filePath);
+    return true;
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+      return false;
+    }
+    throw err;
+  }
+}
+
 export async function loadUnifiedConfig(
   options: UnifiedLoadOptions,
 ): Promise<RulerUnifiedConfig> {
@@ -65,16 +113,17 @@ export async function loadUnifiedConfig(
   let tomlRaw: unknown = {};
   const tomlFile = options.configPath
     ? path.resolve(options.configPath)
-    : path.join(meta.rulerDir, 'ruler.toml');
-  try {
-    const text = await fs.readFile(tomlFile, 'utf8');
-    tomlRaw = text.trim() ? parseTOML(text) : {};
-    meta.configFile = tomlFile;
-  } catch (err) {
-    if (
-      options.configPath ||
-      (err as NodeJS.ErrnoException).code !== 'ENOENT'
-    ) {
+    : await resolveImplicitTomlFile(
+        options.projectRoot,
+        meta.rulerDir,
+        options.checkGlobal ?? true,
+      );
+  if (tomlFile) {
+    try {
+      const text = await fs.readFile(tomlFile, 'utf8');
+      tomlRaw = text.trim() ? parseTOML(text) : {};
+      meta.configFile = tomlFile;
+    } catch (err) {
       diagnostics.push({
         severity: options.configPath ? 'error' : 'warning',
         code: 'TOML_READ_ERROR',
@@ -396,6 +445,53 @@ export async function loadUnifiedConfig(
           if (typeof def.timeout === 'number') {
             server.timeout = def.timeout;
           }
+
+          const hasCommand = !!server.command;
+          const hasUrl = !!server.url;
+
+          if (!hasCommand && !hasUrl) {
+            diagnostics.push({
+              severity: 'warning',
+              code: 'MCP_JSON_INVALID_SERVER',
+              message: `MCP server '${name}' must have at least one of command or url`,
+              file: mcpFile,
+            });
+            continue;
+          }
+
+          if (hasCommand && hasUrl) {
+            diagnostics.push({
+              severity: 'warning',
+              code: 'MCP_JSON_FIELD_CONFLICT',
+              message: `MCP server '${name}' has both command and url - using url (remote)`,
+              file: mcpFile,
+            });
+          }
+
+          if (hasCommand && server.headers) {
+            diagnostics.push({
+              severity: 'warning',
+              code: 'MCP_JSON_FIELD_CONFLICT',
+              message: `MCP server '${name}' has headers with command (should be used with url only)`,
+              file: mcpFile,
+            });
+          }
+
+          if (hasUrl && server.env) {
+            diagnostics.push({
+              severity: 'warning',
+              code: 'MCP_JSON_FIELD_CONFLICT',
+              message: `MCP server '${name}' has env with url (should be used with command only)`,
+              file: mcpFile,
+            });
+          }
+
+          if (hasCommand && hasUrl) {
+            delete server.command;
+            delete server.args;
+            delete server.env;
+          }
+
           // Derive type
           if (server.url) server.type = 'remote';
           else if (server.command) server.type = 'stdio';

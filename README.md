@@ -57,7 +57,7 @@ Ruler solves this by providing a **single source of truth** for all your AI agen
 | Agent                  | Rules File(s)                                  | MCP Configuration / Notes                        | Skills Support / Location | Subagents Support / Location |
 | ---------------------- | ---------------------------------------------- | ------------------------------------------------ | ------------------------- | ---------------------------- |
 | AGENTS.md              | `AGENTS.md`                                    | (pseudo-agent ensuring root `AGENTS.md` exists)  | -                         | -                            |
-| GitHub Copilot         | `AGENTS.md`                                    | `.vscode/mcp.json`                               | `.claude/skills/`         | `.github/agents/`            |
+| GitHub Copilot         | `AGENTS.md`                                    | `.mcp.json`                                      | `.claude/skills/`         | `.github/agents/`            |
 | Claude Code            | `CLAUDE.md`                                    | `.mcp.json`                                      | `.claude/skills/`         | `.claude/agents/`            |
 | OpenAI Codex CLI       | `AGENTS.md`                                    | `.codex/config.toml`                             | `.agents/skills/`         | `.codex/agents/` (`.toml`)   |
 | Pi Coding Agent        | `AGENTS.md`                                    | -                                                | `.pi/skills/`             | -                            |
@@ -135,8 +135,8 @@ This is your central hub for all AI agent instructions:
 - **Primary File Order & Precedence**:
   1. A repository root `AGENTS.md` (outside `.ruler/`) if present (highest precedence, prepended)
   2. `.ruler/AGENTS.md` (new default starter file)
-  3. Legacy `.ruler/instructions.md` (only if `.ruler/AGENTS.md` absent; no longer emits a deprecation warning)
-  4. Remaining discovered `.md` files under `.ruler/` (and subdirectories) in sorted order
+  3. Legacy `.ruler/instructions.md` (used as the primary file only if `.ruler/AGENTS.md` is absent; no longer emits a deprecation warning)
+  4. Remaining discovered `.md` files under `.ruler/` (and subdirectories) in sorted order, including `instructions.md` when both top-level files exist
 - **Rule Files (`*.md`)**: Discovered recursively from `.ruler/` or `$XDG_CONFIG_HOME/ruler` and concatenated in the order above
 - **Concatenation Marker**: Each file's content is prepended with `<!-- Source: <relative_path_to_md_file> -->` for traceability
 - **`ruler.toml`**: Master configuration for Ruler's behavior, agent selection, output paths, and MCP server settings
@@ -953,7 +953,7 @@ ruler apply
 
 ### Scenario 2: Working with worktrees
 
-When using the default `git add worktree` command (which is also run by agents apps such as Claude code or Codex through the interface), the gitignored files are not copied over. You will need to ask your agent to run `ruler apply` at the start of every session.
+When using the default `git worktree add` command (which is also run by agent apps such as Claude Code or Codex through the interface), the gitignored files are not copied over. You will need to ask your agent to run `ruler apply` at the start of every session.
 
 As an alternative you can commit your default agents files to source control.
 
@@ -979,7 +979,7 @@ enabled = false
 To avoid having other contributors commit instructions outside of .ruler you can setup a github action to check there is no diff when running `ruler apply` in CI.
 
 ```yml
-# .github/workflows/ruler-check/yml
+# .github/workflows/ruler-check.yml
 
 # Verifies the committed agent files (AGENTS.md, CLAUDE.md, skills) match the .ruler/ source.
 # They are committed so a fresh clone/worktree has guidance immediately; this guards against drift.
@@ -1014,7 +1014,7 @@ jobs:
 
       - name: Verify committed agent files match .ruler/
         run: |
-          pnpm dlx @intellectronica/ruler@0.3.42 apply --no-gitignore --no-mcp
+          pnpm dlx @intellectronica/ruler apply --no-gitignore --no-mcp
           DRIFT="$(git status --porcelain -- AGENTS.md CLAUDE.md .claude/skills .codex/skills)"
           if [ -n "$DRIFT" ]; then
             echo "::error::Committed agent files are out of sync with .ruler/. Run 'pnpm dlx @intellectronica/ruler apply --no-gitignore --no-mcp' and commit the result."

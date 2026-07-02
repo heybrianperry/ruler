@@ -41,11 +41,29 @@ async function isSymbolicLink(filePath: string): Promise<boolean> {
   }
 }
 
-async function assertNotSymbolicLink(
+export async function assertNotSymbolicLink(
   filePath: string,
   action: string,
 ): Promise<void> {
   if (await isSymbolicLink(filePath)) {
+    throw new Error(`${action}: ${filePath}`);
+  }
+}
+
+async function isHardLinkedFile(filePath: string): Promise<boolean> {
+  try {
+    const stat = await fs.lstat(filePath);
+    return stat.isFile() && stat.nlink > 1;
+  } catch {
+    return false;
+  }
+}
+
+export async function assertNotHardLinked(
+  filePath: string,
+  action: string,
+): Promise<void> {
+  if (await isHardLinkedFile(filePath)) {
     throw new Error(`${action}: ${filePath}`);
   }
 }
@@ -79,6 +97,26 @@ async function assertContainingDirectoryInsideRoot(
   }
 }
 
+export async function assertManagedPathInsideRoot(
+  managedPath: string,
+  rootPath: string,
+  action: string,
+): Promise<void> {
+  const realRoot = await fs.realpath(rootPath);
+  await assertContainingDirectoryInsideRoot(managedPath, rootPath, action);
+
+  try {
+    const realManagedPath = await fs.realpath(managedPath);
+    if (!isPathInsideOrEqual(realRoot, realManagedPath)) {
+      throw new Error(`${action}: ${managedPath}`);
+    }
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+      throw error;
+    }
+  }
+}
+
 async function isRulerGeneratedFile(filePath: string): Promise<boolean> {
   try {
     const content = await fs.readFile(filePath, 'utf8');
@@ -102,8 +140,11 @@ export async function findRulerDir(
   while (current) {
     const candidate = path.join(current, '.ruler');
     try {
-      const stat = await fs.stat(candidate);
-      if (stat.isDirectory()) {
+      const stat = await fs.lstat(candidate);
+      const candidateIsDirectory = stat.isSymbolicLink()
+        ? await symlinkedDirectoryStaysInside(candidate, current)
+        : stat.isDirectory();
+      if (candidateIsDirectory) {
         return candidate;
       }
     } catch {
@@ -136,6 +177,24 @@ export async function findRulerDir(
   }
 
   return null;
+}
+
+async function symlinkedDirectoryStaysInside(
+  candidate: string,
+  containingDir: string,
+): Promise<boolean> {
+  try {
+    const [realContainingDir, realCandidate] = await Promise.all([
+      fs.realpath(containingDir),
+      fs.realpath(candidate),
+    ]);
+    if (!isPathInsideOrEqual(realContainingDir, realCandidate)) {
+      return false;
+    }
+    return (await fs.stat(candidate)).isDirectory();
+  } catch {
+    return false;
+  }
 }
 
 export function resolveProjectRootForRulerDir(
@@ -348,6 +407,10 @@ export async function writeGeneratedFile(
     filePath,
     'Refusing to write generated file through symlink',
   );
+  await assertNotHardLinked(
+    filePath,
+    'Refusing to write generated file through hard link',
+  );
   if (containmentRoot) {
     await assertContainingDirectoryInsideRoot(
       filePath,
@@ -362,9 +425,33 @@ export async function writeGeneratedFile(
  * Creates a backup of the given filePath by copying it to filePath.bak if it exists.
  * Keeps an existing backup intact so repeated applies preserve the original file.
  */
-export async function backupFile(filePath: string): Promise<void> {
+export async function backupFile(
+  filePath: string,
+  containmentRoot?: string,
+): Promise<void> {
   const backupPath = `${filePath}.bak`;
+  if (containmentRoot) {
+    await assertManagedPathInsideRoot(
+      filePath,
+      containmentRoot,
+      'Refusing to back up generated file through symlinked directory',
+    );
+    await assertManagedPathInsideRoot(
+      backupPath,
+      containmentRoot,
+      'Refusing to create backup file through symlinked directory',
+    );
+  }
   await assertNotSymbolicLink(filePath, 'Refusing to back up symlinked file');
+  await assertNotSymbolicLink(
+    backupPath,
+    'Refusing to use symlinked backup file',
+  );
+  await assertNotHardLinked(filePath, 'Refusing to back up hard-linked file');
+  await assertNotHardLinked(
+    backupPath,
+    'Refusing to use hard-linked backup file',
+  );
 
   try {
     await fs.access(backupPath);

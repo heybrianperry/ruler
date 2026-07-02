@@ -5,6 +5,16 @@ import { writeGeneratedFile } from './FileSystemUtils';
 const RULER_START_MARKER = '# START Ruler Generated Files';
 const RULER_END_MARKER = '# END Ruler Generated Files';
 
+export interface RulerBlockRange {
+  start: number;
+  end: number;
+}
+
+export interface RemoveRulerBlocksResult {
+  content: string;
+  removed: boolean;
+}
+
 /**
  * Updates an ignore file in the project root with paths in a managed Ruler block.
  * Creates the file if it doesn't exist, and creates or updates the Ruler-managed block.
@@ -118,25 +128,75 @@ export async function resolveIgnoreFilePath(
  */
 function getExistingPathsExcludingRulerBlock(content: string): string[] {
   const lines = content.split('\n');
+  const rulerBlocks = findCompleteRulerBlocks(lines);
   const paths: string[] = [];
-  let inRulerBlock = false;
 
-  for (const line of lines) {
+  for (const [index, line] of lines.entries()) {
+    if (
+      rulerBlocks.some((block) => index >= block.start && index <= block.end)
+    ) {
+      continue;
+    }
+
     const trimmed = line.trim();
-    if (trimmed === RULER_START_MARKER) {
-      inRulerBlock = true;
-      continue;
-    }
-    if (trimmed === RULER_END_MARKER) {
-      inRulerBlock = false;
-      continue;
-    }
-    if (!inRulerBlock && trimmed && !trimmed.startsWith('#')) {
+    if (trimmed && !trimmed.startsWith('#')) {
       paths.push(trimmed);
     }
   }
 
   return paths;
+}
+
+export function findCompleteRulerBlocks(lines: string[]): RulerBlockRange[] {
+  const ranges: RulerBlockRange[] = [];
+
+  for (let index = 0; index < lines.length; index++) {
+    if (lines[index].trim() !== RULER_START_MARKER) {
+      continue;
+    }
+
+    for (let endIndex = index + 1; endIndex < lines.length; endIndex++) {
+      const trimmed = lines[endIndex].trim();
+      if (trimmed === RULER_START_MARKER) {
+        break;
+      }
+      if (trimmed === RULER_END_MARKER) {
+        ranges.push({ start: index, end: endIndex });
+        index = endIndex;
+        break;
+      }
+    }
+  }
+
+  return ranges;
+}
+
+export function removeCompleteRulerBlocks(
+  content: string,
+): RemoveRulerBlocksResult {
+  const lines = content.split('\n');
+  const rulerBlocks = findCompleteRulerBlocks(lines);
+
+  if (rulerBlocks.length === 0) {
+    return { content, removed: false };
+  }
+
+  const retainedLines: string[] = [];
+
+  for (let index = 0; index < lines.length; index++) {
+    const block = rulerBlocks.find((range) => range.start === index);
+    if (block) {
+      index = block.end;
+      continue;
+    }
+
+    retainedLines.push(lines[index]);
+  }
+
+  return {
+    content: retainedLines.join('\n').replace(/\n{3,}/g, '\n\n'),
+    removed: true,
+  };
 }
 
 /**
@@ -147,35 +207,31 @@ function updateGitignoreContent(
   rulerPaths: string[],
 ): string {
   const lines = existingContent.split('\n');
+  const rulerBlocks = findCompleteRulerBlocks(lines);
   const newLines: string[] = [];
-  let inFirstRulerBlock = false;
-  let hasRulerBlock = false;
-  let processedFirstBlock = false;
+  let replacedFirstBlock = false;
 
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (trimmed === RULER_START_MARKER && !processedFirstBlock) {
-      inFirstRulerBlock = true;
-      hasRulerBlock = true;
-      newLines.push(line);
-      // Add the new Ruler paths
+  for (let index = 0; index < lines.length; index++) {
+    const block = rulerBlocks.find((range) => range.start === index);
+    if (block && !replacedFirstBlock) {
+      newLines.push(lines[block.start]);
       rulerPaths.forEach((p) => newLines.push(p));
+      newLines.push(lines[block.end]);
+      replacedFirstBlock = true;
+      index = block.end;
       continue;
     }
-    if (trimmed === RULER_END_MARKER && inFirstRulerBlock) {
-      inFirstRulerBlock = false;
-      processedFirstBlock = true;
-      newLines.push(line);
+
+    if (block) {
+      index = block.end;
       continue;
     }
-    if (!inFirstRulerBlock) {
-      newLines.push(line);
-    }
-    // Skip lines that are in the first Ruler block (they get replaced)
+
+    newLines.push(lines[index]);
   }
 
   // If no Ruler block exists, add one at the end
-  if (!hasRulerBlock) {
+  if (rulerBlocks.length === 0) {
     // Add blank line if content exists and doesn't end with blank line
     if (existingContent.trim() && !existingContent.endsWith('\n\n')) {
       newLines.push('');

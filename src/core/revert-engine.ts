@@ -3,7 +3,11 @@ import { promises as fs } from 'fs';
 import { IAgent } from '../agents/IAgent';
 import { IAgentConfig } from './ConfigLoader';
 import { getAgentOutputPaths } from '../agents/agent-utils';
-import { getNativeMcpPath } from '../paths/mcp';
+import {
+  getMcpProvenancePath,
+  getNativeMcpPath,
+  removeMcpProvenance,
+} from '../paths/mcp';
 import { logVerbose, actionPrefix } from '../constants';
 import { resolveIgnoreFilePath } from './GitignoreUtils';
 import {
@@ -12,6 +16,11 @@ import {
   getVSCodeSettingsPath,
 } from '../vscode/settings';
 import { isPathInsideOrEqual } from './path-utils';
+import {
+  assertManagedPathInsideRoot,
+  assertNotHardLinked,
+  assertNotSymbolicLink,
+} from './FileSystemUtils';
 
 const RULER_START_MARKER = '# START Ruler Generated Files';
 const RULER_END_MARKER = '# END Ruler Generated Files';
@@ -100,6 +109,18 @@ async function hasRulerGeneratedProvenance(
   projectRoot: string,
 ): Promise<boolean> {
   try {
+    const provenanceContent = await fs.readFile(
+      getMcpProvenancePath(filePath),
+      'utf8',
+    );
+    if (provenanceContent.startsWith(RULER_GENERATED_MARKER)) {
+      return true;
+    }
+  } catch {
+    // Missing or unreadable provenance falls through to the other checks.
+  }
+
+  try {
     const content = await fs.readFile(filePath, 'utf8');
     if (content.startsWith(RULER_GENERATED_MARKER)) {
       return true;
@@ -138,6 +159,7 @@ async function restoreFromBackup(
   filePath: string,
   verbose: boolean,
   dryRun: boolean,
+  projectRoot?: string,
 ): Promise<boolean> {
   const backupPath = `${filePath}.bak`;
   const backupExists = await fileExists(backupPath);
@@ -152,7 +174,38 @@ async function restoreFromBackup(
   if (dryRun) {
     logVerbose(`${prefix} Would restore: ${filePath} from backup`, verbose);
   } else {
+    if (projectRoot) {
+      await assertManagedPathInsideRoot(
+        filePath,
+        projectRoot,
+        'Refusing to restore backup through symlinked output path',
+      );
+      await assertManagedPathInsideRoot(
+        backupPath,
+        projectRoot,
+        'Refusing to restore from backup through symlinked backup path',
+      );
+    }
+    await assertNotSymbolicLink(
+      filePath,
+      'Refusing to restore backup through symlinked output path',
+    );
+    await assertNotSymbolicLink(
+      backupPath,
+      'Refusing to restore from symlinked backup path',
+    );
+    await assertNotHardLinked(
+      filePath,
+      'Refusing to restore backup through hard-linked output path',
+    );
+    await assertNotHardLinked(
+      backupPath,
+      'Refusing to restore from hard-linked backup path',
+    );
     await fs.copyFile(backupPath, filePath);
+    if (projectRoot) {
+      await removeMcpProvenance(filePath, projectRoot);
+    }
     logVerbose(`${prefix} Restored: ${filePath} from backup`, verbose);
   }
 
@@ -197,7 +250,25 @@ async function removeGeneratedFile(
   if (dryRun) {
     logVerbose(`${prefix} Would remove generated file: ${filePath}`, verbose);
   } else {
+    if (projectRoot) {
+      await assertManagedPathInsideRoot(
+        filePath,
+        projectRoot,
+        'Refusing to remove generated file through symlinked path',
+      );
+    }
+    await assertNotSymbolicLink(
+      filePath,
+      'Refusing to remove symlinked generated file',
+    );
+    await assertNotHardLinked(
+      filePath,
+      'Refusing to remove hard-linked generated file',
+    );
     await fs.unlink(filePath);
+    if (projectRoot) {
+      await removeMcpProvenance(filePath, projectRoot);
+    }
     logVerbose(`${prefix} Removed generated file: ${filePath}`, verbose);
   }
 
@@ -211,6 +282,7 @@ async function removeBackupFile(
   filePath: string,
   verbose: boolean,
   dryRun: boolean,
+  projectRoot?: string,
 ): Promise<boolean> {
   const backupPath = `${filePath}.bak`;
   const backupExists = await fileExists(backupPath);
@@ -224,6 +296,21 @@ async function removeBackupFile(
   if (dryRun) {
     logVerbose(`${prefix} Would remove backup file: ${backupPath}`, verbose);
   } else {
+    if (projectRoot) {
+      await assertManagedPathInsideRoot(
+        backupPath,
+        projectRoot,
+        'Refusing to remove backup file through symlinked path',
+      );
+    }
+    await assertNotSymbolicLink(
+      backupPath,
+      'Refusing to remove symlinked backup file',
+    );
+    await assertNotHardLinked(
+      backupPath,
+      'Refusing to remove hard-linked backup file',
+    );
     await fs.unlink(backupPath);
     logVerbose(`${prefix} Removed backup file: ${backupPath}`, verbose);
   }
@@ -414,7 +501,6 @@ async function removeAdditionalAgentFiles(
   const additionalFiles = [
     '.gemini/settings.json',
     '.mcp.json',
-    '.vscode/mcp.json',
     '.cursor/mcp.json',
     '.junie/mcp/mcp.json',
     '.kilocode/mcp.json',
@@ -435,7 +521,12 @@ async function removeAdditionalAgentFiles(
 
       const backupExists = await fileExists(`${fullPath}.bak`);
       if (backupExists) {
-        const restored = await restoreFromBackup(fullPath, verbose, dryRun);
+        const restored = await restoreFromBackup(
+          fullPath,
+          verbose,
+          dryRun,
+          projectRoot,
+        );
         if (restored) {
           filesRemoved++;
         }
@@ -451,7 +542,21 @@ async function removeAdditionalAgentFiles(
             verbose,
           );
         } else {
+          await assertManagedPathInsideRoot(
+            fullPath,
+            projectRoot,
+            'Refusing to remove additional file through symlinked path',
+          );
+          await assertNotSymbolicLink(
+            fullPath,
+            'Refusing to remove symlinked additional file',
+          );
+          await assertNotHardLinked(
+            fullPath,
+            'Refusing to remove hard-linked additional file',
+          );
           await fs.unlink(fullPath);
+          await removeMcpProvenance(fullPath, projectRoot);
           logVerbose(`${prefix} Removed additional file: ${fullPath}`, verbose);
         }
         filesRemoved++;
@@ -468,7 +573,12 @@ async function removeAdditionalAgentFiles(
   const backupPath = `${settingsPath}.bak`;
 
   if (await fileExists(backupPath)) {
-    const restored = await restoreFromBackup(settingsPath, verbose, dryRun);
+    const restored = await restoreFromBackup(
+      settingsPath,
+      verbose,
+      dryRun,
+      projectRoot,
+    );
     if (restored) {
       filesRemoved++;
       logVerbose(`${prefix} Restored VSCode settings from backup`, verbose);
@@ -500,10 +610,15 @@ async function removeAdditionalAgentFiles(
 
           const remainingKeys = Object.keys(settings);
           if (remainingKeys.length === 0) {
+            await assertManagedPathInsideRoot(
+              settingsPath,
+              projectRoot,
+              'Refusing to remove VSCode settings through symlinked path',
+            );
             await fs.unlink(settingsPath);
             logVerbose(`${prefix} Removed empty VSCode settings file`, verbose);
           } else {
-            await writeVSCodeSettings(settingsPath, settings);
+            await writeVSCodeSettings(settingsPath, settings, projectRoot);
             logVerbose(
               `${prefix} Removed augment.advanced section from VSCode settings`,
               verbose,
@@ -542,6 +657,7 @@ export async function revertAgentConfiguration(
   keepBackups: boolean,
   verbose: boolean,
   dryRun: boolean,
+  processedMcpPaths: Set<string> = new Set<string>(),
 ): Promise<RevertAgentResult> {
   const result: RevertAgentResult = {
     restored: 0,
@@ -550,14 +666,39 @@ export async function revertAgentConfiguration(
   };
 
   const outputPaths = getAgentOutputPaths(agent, projectRoot, agentConfig);
+  const mcpPath = await resolveMcpPathForRevert(
+    agent,
+    projectRoot,
+    agentConfig,
+  );
+  const resolvedMcpPath =
+    mcpPath && isPathInsideOrEqual(projectRoot, mcpPath)
+      ? path.resolve(projectRoot, mcpPath)
+      : null;
+  const processedOutputPaths = new Set<string>();
 
   logVerbose(
     `Agent ${agent.getName()} output paths: ${outputPaths.join(', ')}`,
     verbose,
   );
 
-  for (const outputPath of outputPaths) {
-    const restored = await restoreFromBackup(outputPath, verbose, dryRun);
+  const processPath = async (
+    outputPath: string,
+    processedPaths: Set<string>,
+  ): Promise<void> => {
+    const resolvedPath = path.resolve(projectRoot, outputPath);
+    if (processedPaths.has(resolvedPath)) {
+      logVerbose(`Skipping already processed path: ${outputPath}`, verbose);
+      return;
+    }
+    processedPaths.add(resolvedPath);
+
+    const restored = await restoreFromBackup(
+      outputPath,
+      verbose,
+      dryRun,
+      projectRoot,
+    );
     if (restored) {
       result.restored++;
 
@@ -566,6 +707,7 @@ export async function revertAgentConfiguration(
           outputPath,
           verbose,
           dryRun,
+          projectRoot,
         );
         if (backupRemoved) {
           result.backupsRemoved++;
@@ -582,15 +724,20 @@ export async function revertAgentConfiguration(
         result.removed++;
       }
     }
+  };
+
+  for (const outputPath of outputPaths) {
+    const resolvedPath = path.resolve(projectRoot, outputPath);
+    await processPath(
+      outputPath,
+      resolvedMcpPath === resolvedPath
+        ? processedMcpPaths
+        : processedOutputPaths,
+    );
   }
 
   // Handle MCP files
-  const mcpPath = await resolveMcpPathForRevert(
-    agent,
-    projectRoot,
-    agentConfig,
-  );
-  if (mcpPath && isPathInsideOrEqual(projectRoot, mcpPath)) {
+  if (mcpPath && resolvedMcpPath) {
     if (
       agent.getName() === 'AugmentCode' &&
       mcpPath.endsWith('.vscode/settings.json')
@@ -600,31 +747,7 @@ export async function revertAgentConfiguration(
         verbose,
       );
     } else {
-      const mcpRestored = await restoreFromBackup(mcpPath, verbose, dryRun);
-      if (mcpRestored) {
-        result.restored++;
-
-        if (!keepBackups) {
-          const mcpBackupRemoved = await removeBackupFile(
-            mcpPath,
-            verbose,
-            dryRun,
-          );
-          if (mcpBackupRemoved) {
-            result.backupsRemoved++;
-          }
-        }
-      } else {
-        const mcpRemoved = await removeGeneratedFile(
-          mcpPath,
-          verbose,
-          dryRun,
-          projectRoot,
-        );
-        if (mcpRemoved) {
-          result.removed++;
-        }
-      }
+      await processPath(mcpPath, processedMcpPaths);
     }
   }
 
