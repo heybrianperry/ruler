@@ -1,0 +1,5 @@
+# Validate JSON Input Before Parsing in VSCode Settings Management UPDATE
+
+The codebase uses JSON.parse() to deserialize VSCode settings from file content in src/vscode/settings.ts Settings data is persisted using existingServerMap.set() operations, creating a cache layer for server configurations The module exposes public contracts (VSCodeSettings, AugmentMcpServer, readVSCodeSettings, writeVSCodeSettings) that handle file system operations via 'fs' and 'path' libraries Input validation at the JSON parsing boundary is critical to prevent malformed data from corrupting the in-memory cache or causing runtime failures The pattern was detected with 91% confidence across security.input_validation facet in the Primary Datastores category
+
+- All JSON content read from file system MUST be validated for well-formedness before calling JSON.parse()
